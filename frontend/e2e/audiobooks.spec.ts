@@ -190,7 +190,16 @@ test('audiobook list -> tracklist -> figure gallery flow', async ({ page }) => {
   )
   await page.getByRole('button', { name: /第1章:序/ }).click()
   await audioRequest
-  await expect(page.locator('audio')).toBeVisible()
+  // ネイティブ controls は使わず、カスタム操作（シーク・±10秒・倍速）が出る
+  await expect(page.getByTestId('player-controls')).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /再生速度|Playback speed/ })
+  ).toBeVisible()
+  // 倍速はタップで循環し永続化される
+  await page.getByRole('button', { name: /再生速度|Playback speed/ }).click()
+  await expect(
+    page.getByRole('button', { name: /再生速度|Playback speed/ })
+  ).toHaveText('1.25x')
 })
 
 test('empty state renders when no audiobooks exist', async ({ page }) => {

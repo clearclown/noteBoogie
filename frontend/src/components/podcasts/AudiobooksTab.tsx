@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input'
 import { audiobooksApi } from '@/lib/api/audiobooks'
 import { podcastsApi } from '@/lib/api/podcasts'
 import { ImportBookDialog } from './ImportBookDialog'
+import { AudiobookPlayerControls } from './AudiobookPlayerControls'
 import { getApiUrl } from '@/lib/config'
 import {
   AUDIOBOOK_QUERY_KEYS,
@@ -254,15 +255,18 @@ function AudiobookDetailView({
               : currentChapter?.name ?? t('podcasts.audiobookSelectChapter')}
           </p>
           {audioSrc ? (
-            <audio
-              ref={audioRef}
-              src={audioSrc}
-              controls
-              className="w-full"
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={handleEnded}
-            />
+            <>
+              {/* ネイティブ controls は使わず、スマホ最適のカスタム操作を重ねる */}
+              <audio
+                ref={audioRef}
+                src={audioSrc}
+                className="hidden"
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={handleEnded}
+              />
+              <AudiobookPlayerControls audioRef={audioRef} audioSrc={audioSrc} />
+            </>
           ) : null}
         </CardContent>
       </Card>
