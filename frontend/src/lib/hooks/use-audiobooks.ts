@@ -17,17 +17,20 @@ export function useAudiobooks() {
   })
 }
 
+/** Poll while any chapter is still missing audio; stop once all are done. */
+export function chapterPollInterval(
+  detail: { chapters?: { audio_file: string | null }[] } | undefined
+): number | false {
+  const pending = detail?.chapters?.some((c) => !c.audio_file)
+  return pending ? 15_000 : false
+}
+
 export function useAudiobook(audiobookId: string | null) {
   return useQuery({
     queryKey: AUDIOBOOK_QUERY_KEYS.audiobook(audiobookId ?? ''),
     queryFn: () => audiobooksApi.get(audiobookId as string),
     enabled: Boolean(audiobookId),
-    refetchInterval: (query) => {
-      // Poll while any chapter is still missing audio.
-      const detail = query.state.data
-      const pending = detail?.chapters?.some((c) => !c.audio_file)
-      return pending ? 15_000 : false
-    },
+    refetchInterval: (query) => chapterPollInterval(query.state.data),
   })
 }
 
