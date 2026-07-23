@@ -180,9 +180,22 @@ async def ingest(
     # --- 1. Caption figures and rewrite the Markdown for audio ---
     figure_captions: dict[str, "str | None"] = {}
     figures = manifest.get("figures", [])
-    # full_page = ページ全体が画像（扉・写真・全面図）。covers は装丁なので除外。
+    # vision に送るのは「真の図」（kind=figure、切り出された図表）のみ。
+    # full_page（ページ全体画像）は本文の写しであることが大半で、vision に送ると
+    # 1冊あたり数百枚×約7秒の「これは本文ページです」という純ノイズになる
+    # （66冊バッチで実測）。本文テキストは OCR 済みで full_text に入っているため、
+    # full_page は manifest にテキストが載っている場合の低コスト要約のみ行う。
     to_caption = (
-        [f for f in figures if f["kind"] in ("figure", "full_page")] if captions else []
+        [
+            f for f in figures
+            if f["kind"] == "figure"
+            or (
+                f["kind"] == "full_page"
+                and len((f.get("text") or "").strip()) >= TEXT_ONLY_CAPTION_THRESHOLD
+            )
+        ]
+        if captions
+        else []
     )
     if to_caption:
         import anthropic
@@ -226,6 +239,10 @@ async def ingest(
     chapters = manifest.get("chapters", [])
     records = []
     for fig in figures:
+        # キャプションの付かなかった full_page は図ギャラリーのノイズになるだけ
+        # なので DB に入れない（真の図はキャプション無しでも保持）
+        if fig["kind"] == "full_page" and not figure_captions.get(fig["path"]):
+            continue
         records.append(
             {
                 "source": ensure_record_id(str(source.id)),

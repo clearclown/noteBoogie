@@ -221,12 +221,13 @@ async def test_ingest_saves_source_and_figures(tmp_path, wired):
     wired.source.add_to_notebook.assert_awaited_once_with("notebook:n1")
     wired.source.vectorize.assert_awaited_once()
 
-    # All manifest figures (covers included) become book_figure records with
-    # resolved absolute paths and chapter mapping.
+    # figure/cover は book_figure 化されるが、キャプションの付かない full_page は
+    # 本文の写しでありギャラリーのノイズになるため除外される（66冊バッチで実測）。
     records = wired.repo_insert.call_args.args[1]
     assert wired.repo_insert.call_args.args[0] == "book_figure"
-    assert len(records) == 3
+    assert len(records) == 2
     by_page = {r["path"]: r for r in records}
+    assert str((dirp / "images/page_001_full.png").resolve()) not in by_page
     fig = by_page[str((dirp / "images/page_003_fig_001.png").resolve())]
     assert fig["chapter_index"] == 1  # page 3 -> 第2章 (index 1)
     assert fig["kind"] == "figure"
@@ -240,7 +241,11 @@ async def test_ingest_captions_only_figure_and_full_page_kinds(
     figures = [
         {"path": "images/cover_001.png", "page": 1, "kind": "cover"},
         {"path": "images/page_002_fig_001.png", "page": 2, "kind": "figure"},
+        # テキストの無い full_page（本文ページの写し）は vision に送らない
         {"path": "images/page_003_full.png", "page": 3, "kind": "full_page"},
+        # テキスト豊富な full_page はテキスト経路で要約される
+        {"path": "images/page_004_full.png", "page": 4, "kind": "full_page",
+         "text": "全ページ図のテキスト。" * 20},
         {"path": "images/missing.png", "page": 3, "kind": "figure"},
     ]
     dirp = _write_book_dir(
@@ -251,21 +256,31 @@ async def test_ingest_captions_only_figure_and_full_page_kinds(
     # Only figures whose file exists reach the captioner.
     (dirp / "images/page_002_fig_001.png").write_bytes(b"x")
     (dirp / "images/page_003_full.png").write_bytes(b"x")
+    (dirp / "images/page_004_full.png").write_bytes(b"x")
 
     captioned = []
+    text_captioned = []
 
     def fake_caption(client, model, image_path, figure_text=None):
         captioned.append(image_path.name)
         return "図の説明"
 
+    def fake_text_caption(client, model, figure_text):
+        text_captioned.append(figure_text[:10])
+        return "テキスト図の説明"
+
     monkeypatch.setattr(wired.mod, "caption_figure", fake_caption)
+    monkeypatch.setattr(wired.mod, "caption_from_text", fake_text_caption)
     monkeypatch.setattr(
         "anthropic.Anthropic", MagicMock(), raising=False
     )
 
     await ingest(dirp, None, "本", captions=True, caption_model="m")
 
-    assert captioned == ["page_002_fig_001.png", "page_003_full.png"]
+    # vision は真の図のみ。テキスト無し full_page は送られず、
+    # テキスト豊富な full_page は低コストのテキスト経路へ
+    assert captioned == ["page_002_fig_001.png"]
+    assert len(text_captioned) == 1
     # The captioned image link in the md became a spoken marker on the Source.
     source_kwargs = wired.mod.Source.call_args.kwargs
     assert "【図: 図の説明】" in source_kwargs["full_text"]
