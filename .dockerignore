@@ -22,6 +22,14 @@ frontend/dist
 frontend/out
 frontend/.env*
 frontend/*.log
+frontend/test-results
+frontend/playwright-report
+
+# Rust build artifacts (10GB+ — must never enter the build context)
+gateway/target
+
+# Copyrighted source material (books) — never bake into images
+input
 
 # Local tooling / agent working dirs (can contain full .venv + node_modules)
 .claude

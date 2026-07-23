@@ -10,7 +10,9 @@ COPY gateway/ gateway/
 WORKDIR /build/gateway
 RUN cargo build --release
 
-FROM debian:bookworm-slim
+# rust:1.96-slim は trixie ベース（glibc 2.41）のため、ランタイムも trixie に
+# 揃える（bookworm だと `GLIBC_2.38 not found` で起動不能）
+FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*

@@ -137,11 +137,11 @@ async def wait_for_stack() -> None:
     import httpx
 
     log("スタック（DB/API/gateway）の起動を待機…")
-    deadline = time.time() + 45 * 60
+    deadline = time.time() + 4 * 3600  # 初回はイメージビルドが長い（夜間運転前提）
     async with httpx.AsyncClient(timeout=5) as client:
         while time.time() < deadline:
             try:
-                api = await client.get(f"{API_URL}/api/health")
+                api = await client.get(f"{API_URL}/health")
                 gw = await client.get(f"{GATEWAY_URL}/health")
                 if api.status_code == 200 and gw.status_code == 200:
                     log("スタック起動確認")
