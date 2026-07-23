@@ -65,6 +65,35 @@ describe('audiobooksApi', () => {
     await expect(audiobooksApi.list()).rejects.toThrow('500')
   })
 
+  it('starts generation with a JSON POST and returns the response', async () => {
+    fetchMock.mockResolvedValue(okJson({
+      audiobook_id: 'audiobook:new',
+      audiobook_name: '本',
+      chapter_count: 13,
+      status: 'processing',
+    }))
+    const result = await audiobooksApi.generate({
+      audiobook_name: '本',
+      source_id: 'source:s1',
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8088/audiobooks/generate',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ audiobook_name: '本', source_id: 'source:s1' }),
+      }
+    )
+    expect(result.chapter_count).toBe(13)
+  })
+
+  it('throws when generation is rejected', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 400, json: async () => ({}) })
+    await expect(
+      audiobooksApi.generate({ audiobook_name: 'x', source_id: 'source:s1' })
+    ).rejects.toThrow('400')
+  })
+
   it('deletes via the DELETE method and throws on failure', async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200 })
     await audiobooksApi.delete('audiobook:z')
