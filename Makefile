@@ -177,9 +177,9 @@ ingest-book:
 
 # Full stack for book workflows: DB + API + worker + sidecar + gateway.
 book-stack:
-	@docker compose -f docker-compose.dev.yml up -d surrealdb
+	@docker compose -f examples/docker-compose-dev.yml up -d surrealdb
 	@sleep 3
-	@uv run run_api.py &
+	@uv run --env-file .env run_api.py &
 	@sleep 3
 	@uv run --env-file .env surreal-commands-worker --import-modules commands &
 	@sleep 2
@@ -223,10 +223,10 @@ worker-restart: worker-stop
 start-all:
 	@echo "🚀 Starting Open Notebook (Database + API + Worker + Frontend)..."
 	@echo "📊 Starting SurrealDB..."
-	@docker compose -f docker-compose.dev.yml up -d surrealdb
+	@docker compose -f examples/docker-compose-dev.yml up -d surrealdb
 	@sleep 3
 	@echo "🔧 Starting API backend..."
-	@uv run run_api.py &
+	@uv run --env-file .env run_api.py &
 	@sleep 3
 	@echo "⚙️ Starting background worker..."
 	@uv run --env-file .env surreal-commands-worker --import-modules commands --max-tasks "$${OPEN_NOTEBOOK_WORKER_MAX_TASKS:-5}" &

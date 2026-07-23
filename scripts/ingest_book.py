@@ -6,7 +6,7 @@ book_manifest.json). Produces:
   1. A Notebook named after the book, and a Source with the full Markdown
      (linked via the `reference` edge) — the pattern Open Notebook's own
      ingestion uses in-process, since no raw-text HTTP endpoint exists.
-  2. `book_figure` records (migration 17) for every separated figure, with
+  2. `book_figure` records (migration 25) for every separated figure, with
      Claude-vision captions for kind=="figure" images.
   3. Figure image links in the Markdown replaced by 【図: <caption>】 markers
      so the audiobook script narrates figures; remaining image links stripped.
