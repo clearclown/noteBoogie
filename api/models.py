@@ -58,6 +58,10 @@ class AskRequest(BaseModel):
     strategy_model: str = Field(..., description="Model ID for query strategy")
     answer_model: str = Field(..., description="Model ID for individual answers")
     final_answer_model: str = Field(..., description="Model ID for final answer")
+    notebook_id: Optional[str] = Field(
+        default=None,
+        description="Limit retrieval to this notebook's sources/notes (default: whole library)",
+    )
 
 
 class AskResponse(BaseModel):

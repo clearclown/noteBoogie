@@ -40,6 +40,25 @@ def top_similarity(results: list) -> float:
     return max((float(r.get("similarity") or 0.0) for r in results), default=0.0)
 
 
+async def notebook_member_ids(notebook_id: str) -> set:
+    """notebook に属する source/note の id 集合（ask の notebook スコープ用）。"""
+    from open_notebook.database.repository import repo_query
+
+    members: set = set()
+    for relation in ("reference", "artifact"):  # source→notebook / note→notebook
+        rows = await repo_query(
+            f"SELECT VALUE type::string(in) FROM {relation} WHERE out = type::thing($nb)",
+            {"nb": notebook_id},
+        )
+        members.update(str(r) for r in rows)
+    return members
+
+
+def filter_to_notebook(results: list, member_ids: set) -> list:
+    """ヒットを notebook 所属の親（source/note）に絞る後段フィルタ。"""
+    return [r for r in results if str(r.get("parent_id") or "") in member_ids]
+
+
 class SubGraphState(TypedDict):
     question: str
     term: str
@@ -127,6 +146,13 @@ async def provide_answer(state: SubGraphState, config: RunnableConfig) -> dict:
         #     results = text_search(state["term"], 10, True, True)
         # else:
         results = await vector_search(state["term"], 10, True, True)
+        # notebook スコープ指定時は所属 source/note に絞る（グローバル検索の限界対応）。
+        # 根拠不足判定より先に絞ることで、refusal はスコープ内の根拠を反映する
+        notebook_id = config.get("configurable", {}).get("notebook_id")
+        if notebook_id:
+            results = filter_to_notebook(
+                results, await notebook_member_ids(str(notebook_id))
+            )
         floor = ask_evidence_floor()
         top = top_similarity(results)
         if len(results) == 0 or top < floor:

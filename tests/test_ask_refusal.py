@@ -146,3 +146,99 @@ async def test_final_answer_runs_llm_when_any_search_succeeded():
             {"configurable": {}},
         )
     assert result["final_answer"] == "統合回答"
+
+
+# ---------------------------------------------------------------------------
+# Notebook scope (ask はグローバル検索 → notebook_id で所属分に絞れる)
+# ---------------------------------------------------------------------------
+
+
+def test_filter_to_notebook():
+    from open_notebook.graphs.ask import filter_to_notebook
+
+    hits = [
+        {"parent_id": "source:a", "similarity": 0.7},
+        {"parent_id": "source:b", "similarity": 0.9},
+        {"parent_id": None, "similarity": 0.8},
+    ]
+    assert filter_to_notebook(hits, {"source:a"}) == [hits[0]]
+    assert filter_to_notebook(hits, set()) == []
+
+
+@pytest.mark.asyncio
+async def test_notebook_member_ids_queries_both_relations():
+    from open_notebook.graphs import ask
+
+    queries = []
+
+    async def fake_repo_query(query, params=None):
+        queries.append(query)
+        return ["source:a"] if "reference" in query else ["note:n1"]
+
+    with patch(
+        "open_notebook.database.repository.repo_query", new=fake_repo_query
+    ):
+        members = await ask.notebook_member_ids("notebook:x")
+
+    assert members == {"source:a", "note:n1"}
+    assert any("FROM reference" in q for q in queries)
+    assert any("FROM artifact" in q for q in queries)
+
+
+@pytest.mark.asyncio
+async def test_notebook_scope_filters_before_refusal_check():
+    """スコープ外の高スコアヒットしか無い場合は「根拠不足」になること。"""
+    hits = [
+        {"id": "e:1", "parent_id": "source:other", "title": "別の本",
+         "content": "強い一致", "similarity": 0.9},
+    ]
+    with (
+        patch(
+            "open_notebook.graphs.ask.vector_search", new=AsyncMock(return_value=hits)
+        ),
+        patch(
+            "open_notebook.graphs.ask.notebook_member_ids",
+            new=AsyncMock(return_value={"source:mine"}),
+        ),
+        patch(
+            "open_notebook.graphs.ask.provision_langchain_model", new=AsyncMock()
+        ) as mock_provision,
+        patch("open_notebook.graphs.ask.log_quality_event", new=AsyncMock()),
+    ):
+        result = await provide_answer(
+            {"question": "q", "term": "t", "instructions": "i"},  # type: ignore[typeddict-item]
+            {"configurable": {"notebook_id": "notebook:x"}},
+        )
+
+    assert result["answers"][0].startswith(REFUSAL_PREFIX)
+    mock_provision.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_notebook_scope_keeps_member_hits():
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=type("M", (), {"content": "回答"})())
+    hits = [
+        {"id": "e:1", "parent_id": "source:mine", "title": "本",
+         "content": "一致", "similarity": 0.7},
+        {"id": "e:2", "parent_id": "source:other", "title": "別の本",
+         "content": "無関係", "similarity": 0.9},
+    ]
+    with (
+        patch(
+            "open_notebook.graphs.ask.vector_search", new=AsyncMock(return_value=hits)
+        ),
+        patch(
+            "open_notebook.graphs.ask.notebook_member_ids",
+            new=AsyncMock(return_value={"source:mine"}),
+        ),
+        patch(
+            "open_notebook.graphs.ask.provision_langchain_model",
+            new=AsyncMock(return_value=model),
+        ),
+    ):
+        result = await provide_answer(
+            {"question": "q", "term": "t", "instructions": "i"},  # type: ignore[typeddict-item]
+            {"configurable": {"notebook_id": "notebook:x"}},
+        )
+    assert result["answers"] == ["回答"]

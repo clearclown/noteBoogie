@@ -67,7 +67,11 @@ async def search_knowledge_base(search_request: SearchRequest):
 
 
 async def stream_ask_response(
-    question: str, strategy_model: Model, answer_model: Model, final_answer_model: Model
+    question: str,
+    strategy_model: Model,
+    answer_model: Model,
+    final_answer_model: Model,
+    notebook_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream the ask response as Server-Sent Events."""
     try:
@@ -82,6 +86,7 @@ async def stream_ask_response(
                     strategy_model=strategy_model.id,
                     answer_model=answer_model.id,
                     final_answer_model=final_answer_model.id,
+                    notebook_id=notebook_id,
                 )
             ),
             stream_mode="updates",
@@ -155,7 +160,11 @@ async def ask_knowledge_base(ask_request: AskRequest):
         # For streaming response
         return StreamingResponse(
             stream_ask_response(
-                ask_request.question, strategy_model, answer_model, final_answer_model
+                ask_request.question,
+                strategy_model,
+                answer_model,
+                final_answer_model,
+                ask_request.notebook_id,
             ),
             media_type="text/event-stream",
             headers={
@@ -217,6 +226,7 @@ async def ask_knowledge_base_simple(ask_request: AskRequest):
                     strategy_model=strategy_model.id,
                     answer_model=answer_model.id,
                     final_answer_model=final_answer_model.id,
+                    notebook_id=ask_request.notebook_id,
                 )
             ),
             stream_mode="updates",

@@ -71,7 +71,7 @@ async def do_search_books(query: str, limit: int = 5) -> list[dict[str, Any]]:
     ]
 
 
-async def do_ask_book(question: str) -> str:
+async def do_ask_book(question: str, notebook_id: str | None = None) -> str:
     from open_notebook.ai.models import DefaultModels
     from open_notebook.graphs.ask import graph
 
@@ -90,6 +90,7 @@ async def do_ask_book(question: str) -> str:
                 "strategy_model": model_id,
                 "answer_model": model_id,
                 "final_answer_model": model_id,
+                "notebook_id": notebook_id,
             }
         },
     )
@@ -137,12 +138,13 @@ async def search_books(query: str, limit: int = 5) -> list[dict[str, Any]]:
 
 
 @mcp.tool()
-async def ask_book(question: str) -> str:
+async def ask_book(question: str, notebook_id: str | None = None) -> str:
     """蔵書ナレッジベースに質問し、本文グラウンディングされた回答を返す。
 
-    回答には [source:...] 形式の出典が含まれる。
+    回答には [source:...] 形式の出典が含まれる。notebook_id（例: notebook:xxxx）を
+    渡すとそのノートブックの蔵書に限定して検索する。
     """
-    return await do_ask_book(question)
+    return await do_ask_book(question, notebook_id)
 
 
 @mcp.tool()
