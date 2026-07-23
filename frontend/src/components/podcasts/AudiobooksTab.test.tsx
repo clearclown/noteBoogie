@@ -189,6 +189,54 @@ describe('AudiobooksTab detail view', () => {
     })
   })
 
+  it('shows the audio-unavailable message when the blob fetch fails', async () => {
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.get).mockResolvedValue(DETAIL)
+    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 })))
+    renderTab()
+    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
+    fireEvent.click(await screen.findByText('第1章：序'))
+    expect(await screen.findByText('podcasts.audioUnavailable')).toBeInTheDocument()
+  })
+
+  it('renders no gallery card when the book has no figures', async () => {
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.get).mockResolvedValue(DETAIL)
+    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
+    renderTab()
+    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
+    await screen.findByText('第1章：序')
+    expect(screen.queryByText('podcasts.audiobookFigures')).not.toBeInTheDocument()
+  })
+
+  it('keeps the card visible when deletion fails', async () => {
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.delete).mockRejectedValue(new Error('gateway down'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderTab()
+    await screen.findByText('コンサル頭のつくり方')
+    fireEvent.click(screen.getByLabelText('common.delete'))
+    await waitFor(() => expect(audiobooksApi.delete).toHaveBeenCalled())
+    expect(screen.getByText('コンサル頭のつくり方')).toBeInTheDocument()
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('falls back to unauthenticated audio fetch when auth storage is corrupt', async () => {
+    window.localStorage.setItem('auth-storage', '{not json')
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.get).mockResolvedValue(DETAIL)
+    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
+    renderTab()
+    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
+    fireEvent.click(await screen.findByText('第1章：序'))
+    await waitFor(() => expect(fetch).toHaveBeenCalled())
+    const headers = vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers?.Authorization).toBeUndefined()
+    window.localStorage.removeItem('auth-storage')
+  })
+
   it('returns to the list with the back button', async () => {
     await openDetail()
     const backButton = screen

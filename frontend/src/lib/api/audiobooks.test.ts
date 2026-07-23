@@ -8,6 +8,14 @@ describe('getGatewayUrl', () => {
   })
 })
 
+describe('getGatewayUrl with env override', () => {
+  it('prefers NEXT_PUBLIC_GATEWAY_URL when set', () => {
+    vi.stubEnv('NEXT_PUBLIC_GATEWAY_URL', 'http://gw.example:9999')
+    expect(getGatewayUrl()).toBe('http://gw.example:9999')
+    vi.unstubAllEnvs()
+  })
+})
+
 describe('audiobooksApi', () => {
   const fetchMock = vi.fn()
 
