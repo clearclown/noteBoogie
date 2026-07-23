@@ -28,7 +28,7 @@ pub async fn get_audiobook(db: &Surreal<Any>, full_id: &str) -> DbResult<Option<
 
 pub async fn get_chapters(db: &Surreal<Any>, audiobook_full_id: &str) -> DbResult<Vec<ChapterEpisode>> {
     let q = "SELECT type::string(id) AS id, name, chapter_index, chapter_title, audio_file, \
-             generation_error \
+             generation_error, feedback \
              FROM episode WHERE type::string(audiobook) = $ab ORDER BY chapter_index ASC";
     db.query(q)
         .bind(("ab", audiobook_full_id.to_string()))

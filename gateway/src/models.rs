@@ -26,6 +26,9 @@ pub struct ChapterEpisode {
     /// Permanent generation failure message (None while pending/succeeded).
     #[serde(default)]
     pub generation_error: Option<String>,
+    /// Listener feedback ("up"/"down", None when unrated).
+    #[serde(default)]
+    pub feedback: Option<String>,
 }
 
 /// Audiobook + ordered chapters (GET /audiobooks/{id}).
@@ -130,6 +133,7 @@ mod tests {
                 chapter_index: Some(0),
                 chapter_title: Some("序".into()),
                 audio_file: None,
+                feedback: None,
                 generation_error: None,
             }],
         };

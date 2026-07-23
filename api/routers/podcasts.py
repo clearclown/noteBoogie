@@ -352,6 +352,39 @@ async def stream_podcast_episode_audio(episode_id: str):
     )
 
 
+class EpisodeFeedbackRequest(BaseModel):
+    """章の👍/👎（RL報酬蒸留の人手シグナル、null で取り消し）。"""
+
+    rating: Optional[str] = None
+
+
+@router.put("/podcasts/episodes/{episode_id}/feedback")
+async def set_episode_feedback(episode_id: str, request: EpisodeFeedbackRequest):
+    """Set or clear the listener feedback (up/down) for an episode/chapter."""
+    from open_notebook.database.repository import repo_query
+
+    if request.rating not in (None, "up", "down"):
+        raise HTTPException(status_code=422, detail="rating must be 'up', 'down' or null")
+    try:
+        rows = await repo_query(
+            "SELECT id FROM episode WHERE id = type::thing($id)", {"id": episode_id}
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        await repo_query(
+            "UPDATE episode SET feedback = $rating WHERE id = type::thing($id)",
+            {"id": episode_id, "rating": request.rating},
+        )
+        return {"id": episode_id, "feedback": request.rating}
+    except HTTPException:
+        raise
+    except OpenNotebookError:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting feedback for {episode_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error setting feedback")
+
+
 @router.post("/podcasts/episodes/{episode_id}/retry")
 async def retry_podcast_episode(episode_id: str):
     """Retry a failed podcast episode by deleting it and submitting a new job"""
