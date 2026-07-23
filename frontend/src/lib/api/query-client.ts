@@ -35,4 +35,7 @@ export const QUERY_KEYS = {
   episodeProfiles: ['podcasts', 'episode-profiles'] as const,
   speakerProfiles: ['podcasts', 'speaker-profiles'] as const,
   languages: ['languages'] as const,
+  mentorMessages: ['mentor', 'messages'] as const,
+  mentorMemories: ['mentor', 'memories'] as const,
+  mentorWeights: ['mentor', 'weights'] as const,
 }

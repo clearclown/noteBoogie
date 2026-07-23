@@ -38,6 +38,7 @@ import {
   ChevronLeft,
   Menu,
   FileText,
+  GraduationCap,
   Plus,
   Wrench,
   Command,
@@ -61,6 +62,7 @@ const getNavigation = (t: TFunction) => [
     title: t('navigation.create'),
     items: [
       { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic },
+      { name: t('navigation.mentor'), href: '/mentor', icon: GraduationCap },
     ],
   },
   {
