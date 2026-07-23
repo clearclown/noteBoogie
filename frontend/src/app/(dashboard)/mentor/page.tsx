@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MentorChat } from '@/components/mentor/MentorChat'
 import { MentorMemoryPanel } from '@/components/mentor/MentorMemoryPanel'
+import { MentorSlidesTab } from '@/components/mentor/MentorSlidesTab'
 import { MentorWeightsTab } from '@/components/mentor/MentorWeightsTab'
 import { useTranslation } from '@/lib/hooks/use-translation'
 
@@ -35,7 +36,7 @@ export default function MentorPage() {
                 <MessageCircle className="h-4 w-4" />
                 {t('mentor.tabChat')}
               </TabsTrigger>
-              <TabsTrigger value="slides" className="gap-1.5" disabled>
+              <TabsTrigger value="slides" className="gap-1.5">
                 <Presentation className="h-4 w-4" />
                 {t('mentor.tabSlides')}
               </TabsTrigger>
@@ -46,6 +47,9 @@ export default function MentorPage() {
             </TabsList>
             <TabsContent value="chat" className="mt-4">
               <MentorChat />
+            </TabsContent>
+            <TabsContent value="slides" className="mt-4">
+              <MentorSlidesTab />
             </TabsContent>
             <TabsContent value="weights" className="mt-4">
               <MentorWeightsTab />

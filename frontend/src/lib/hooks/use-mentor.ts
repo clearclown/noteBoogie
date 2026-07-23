@@ -148,6 +148,63 @@ export function useUpdateWeight() {
   })
 }
 
+export function useSlideReviews() {
+  return useQuery({
+    queryKey: QUERY_KEYS.slideReviews,
+    queryFn: () => mentorApi.listSlideReviews(),
+  })
+}
+
+export function useReviewSlides() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: mentorApi.reviewSlides,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.slideReviews })
+    },
+    onError: () => {
+      toast({ title: t('mentor.slideReviewError'), variant: 'destructive' })
+    },
+  })
+}
+
+/** 選択指摘を適用した _coached.pptx をダウンロードとして保存させる。 */
+export function useApplySlideFixes() {
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: async ({
+      reviewId,
+      issueIds,
+      filename,
+    }: {
+      reviewId: string
+      issueIds: string[]
+      filename: string
+    }) => {
+      const blob = await mentorApi.applySlideFixes(reviewId, issueIds)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename.replace(/\.pptx$/i, '') + '_coached.pptx'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    },
+    onSuccess: () => {
+      toast({ title: t('mentor.applyDone') })
+    },
+    onError: () => {
+      toast({ title: t('mentor.applyError'), variant: 'destructive' })
+    },
+  })
+}
+
 /**
  * 師匠回答の音声再生。mp3 blob を取得して <audio> なしの Audio で再生する。
  * 同じメッセージはサーバー側キャッシュが効く。

@@ -38,4 +38,5 @@ export const QUERY_KEYS = {
   mentorMessages: ['mentor', 'messages'] as const,
   mentorMemories: ['mentor', 'memories'] as const,
   mentorWeights: ['mentor', 'weights'] as const,
+  slideReviews: ['mentor', 'slide-reviews'] as const,
 }

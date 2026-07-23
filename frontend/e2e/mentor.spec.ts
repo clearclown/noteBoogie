@@ -10,6 +10,12 @@ import { expect, Page, test } from '@playwright/test'
 const API = 'http://localhost:5055'
 const GATEWAY = 'http://localhost:8088'
 
+// 1x1 transparent PNG
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64'
+)
+
 async function mockBackends(page: Page) {
   // Catch-alls first; specific mocks below take precedence.
   await page.route(`${API}/**`, (route) => {
@@ -141,6 +147,65 @@ test('consult flow: question -> answer with book chips -> memory panel', async (
   // Memory panel now lists the stored consultation.
   await page.getByRole('button', { name: /記憶|Memories/ }).click()
   await expect(page.getByText('課題認識から始めるべき')).toBeVisible()
+})
+
+test('slides tab: upload -> rubric result with gate badge', async ({ page }) => {
+  await page.route(`${API}/api/mentor/slide-reviews*`, (route) =>
+    route.fulfill({ json: [] })
+  )
+  await page.route(`${API}/api/mentor/slide-review`, (route) =>
+    route.fulfill({
+      json: {
+        id: 'slide_review:r1',
+        filename: 'deck.png',
+        kind: 'image',
+        page_count: 1,
+        overall: 3.1,
+        passed: false,
+        threshold: 3.0,
+        axes: [
+          { key: 'logic', score: 4.0, issues: [], passed: true },
+          { key: 'message_body', score: 3.5, issues: [], passed: true },
+          {
+            key: 'charts',
+            score: 2.0,
+            issues: [
+              {
+                id: null,
+                page: 1,
+                text: '円グラフが不適切',
+                fix: '横棒グラフに変更',
+                rule: null,
+                applicable: false,
+              },
+            ],
+            passed: false,
+          },
+          { key: 'tone_manner', score: 3.0, issues: [], passed: true },
+          { key: 'design', score: 3.2, issues: [], passed: true },
+        ],
+        summary: '構成は良好です',
+        top_fix: '横棒グラフに変更',
+        citations: [{ id: 'source:s1', title: 'コンサル頭のつくり方' }],
+        created: null,
+      },
+    })
+  )
+
+  await page.goto('/mentor')
+  await page.getByRole('tab', { name: /スライド|Slides/ }).click()
+
+  await page
+    .getByTestId('slide-file-input')
+    .setInputFiles({ name: 'deck.png', mimeType: 'image/png', buffer: PNG })
+
+  const result = page.getByTestId('slide-review-result')
+  await expect(result).toContainText('deck.png')
+  await expect(result).toContainText('3.1')
+  await expect(result).toContainText('円グラフが不適切')
+  await expect(
+    result.getByText('コンサル頭のつくり方', { exact: true })
+  ).toBeVisible()
 })
 
 test('weights tab lists books with sliders and auto-factor badge', async ({
