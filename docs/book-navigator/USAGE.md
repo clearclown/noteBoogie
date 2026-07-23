@@ -73,7 +73,44 @@ claude mcp add book-navigator -- \
 
 疎通確認: `uv run --env-file .env python scripts/book_mcp_server.py --selftest`
 
-## 6. 品質評価とプロンプト最適化
+## 6. モデルの選択（GUI / CLI）
+
+### GUI から
+
+| 対象 | 場所 |
+|---|---|
+| 台本（outline/transcript）と声（voice） | http://localhost:3000/podcasts → **テンプレート**タブ → `book_navigator` / `book_navigator_mentor` を編集（モデルのドロップダウン） |
+| chat / ask / 埋め込み / 変換のデフォルト | http://localhost:3000/settings 系のモデル設定ページ（DefaultModels） |
+| モデルの登録・APIキー | Models（API Keys）ページ → クレデンシャル追加 → モデル発見・登録 |
+
+### CLI から
+
+```bash
+make set-book-models                                            # 既定: sonnet-5 + gemini TTS
+make set-book-models LLM=claude-haiku-4-5                       # 台本を低コスト化
+make set-book-models PROVIDER=deepseek LLM=deepseek-v4-flash    # さらに低コスト（品質は eval で確認を）
+make set-book-models TTS_PROVIDER=openai_compatible TTS=kokoro  # ローカルTTS（下記）
+```
+
+## 7. ローカルTTS（クラウド不要の音声合成）
+
+TTS は esperanto の `openai_compatible` プロバイダ経由で、**OpenAI 互換 `/v1/audio/speech` を喋る任意のローカルサーバ**に差し替えられます。
+
+例: [kokoro-fastapi](https://github.com/remsky/Kokoro-FastAPI)（日本語ボイスあり・Docker一発）
+
+```bash
+docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest   # Apple SiliconはCPU版
+
+# .env に追記
+OPENAI_COMPATIBLE_BASE_URL=http://localhost:8880/v1
+OPENAI_COMPATIBLE_API_KEY=not-needed
+
+make set-book-models TTS_PROVIDER=openai_compatible TTS=kokoro
+```
+
+以後のオーディオブック生成は TTS 費用ゼロ（品質・読み仮名精度はクラウド比で低下します。日本語特化なら VOICEVOX / AivisSpeech + OpenAI互換ブリッジも同じ方式で接続可能）。台本 LLM も `PROVIDER=ollama LLM=モデル名` でローカル化でき、**完全オフライン生成**構成になります。
+
+## 8. 品質評価とプロンプト最適化
 
 ```bash
 # 台本の自動採点（構成遵守 / 捏造リスク / 敬体一貫性 / 長さ）

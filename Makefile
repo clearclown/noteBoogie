@@ -156,6 +156,21 @@ full:
 api:
 	uv run --env-file .env run_api.py
 
+.PHONY: set-book-models
+
+# Select the models Book Navigator uses (script + defaults in one shot).
+# Examples:
+#   make set-book-models                                        # cloud defaults
+#   make set-book-models LLM=claude-haiku-4-5                   # cheaper scripts
+#   make set-book-models TTS_PROVIDER=openai_compatible TTS=kokoro  # local TTS
+set-book-models:
+	uv run --env-file .env python scripts/setup_book_navigator_models.py \
+		--provider $(or $(PROVIDER),anthropic) \
+		--language-model $(or $(LLM),claude-sonnet-5) \
+		--tts-provider $(or $(TTS_PROVIDER),google) \
+		--tts-model "$(or $(TTS),gemini-3.1-flash-tts-preview)" \
+		--set-defaults
+
 .PHONY: convert-book ingest-book book-stack
 
 # SuperBook PDF converter (sibling dev repo; run from its dir so it finds

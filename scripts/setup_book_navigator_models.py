@@ -15,6 +15,12 @@ Usage (fully local LLM via Ollama; defer/skip TTS):
     uv run python scripts/setup_book_navigator_models.py \
         --provider ollama --language-model gpt-oss:20b --tts-model ""
 
+Usage (local TTS via an OpenAI-compatible server, e.g. kokoro-fastapi):
+    OPENAI_COMPATIBLE_BASE_URL=http://localhost:8880/v1 \
+    uv run --env-file .env python scripts/setup_book_navigator_models.py \
+        --provider anthropic --language-model claude-sonnet-5 \
+        --tts-provider openai_compatible --tts-model kokoro
+
 Pass an empty --tts-model to skip linking the voice model (TTS added later).
 Env (SurrealDB connection) is read the same way as the rest of the app.
 """
@@ -114,7 +120,7 @@ if __name__ == "__main__":
     ap.add_argument(
         "--tts-provider",
         default=None,
-        help="TTS provider (defaults to --provider; use 'openai-compatible' for local TTS)",
+        help="TTS provider (defaults to --provider; use 'openai_compatible' for a local OpenAI-compatible TTS server)",
     )
     ap.add_argument(
         "--set-defaults",
