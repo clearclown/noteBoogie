@@ -141,6 +141,34 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage/
 
+  frontend-e2e:
+    name: Frontend E2E (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        # Backend/gateway are mocked at the network layer (page.route), so
+        # only the Next.js dev server is needed.
+        run: npx playwright test
+
   frontend-lint:
     name: Frontend Lint
     runs-on: ubuntu-latest
