@@ -13,6 +13,7 @@ export default defineConfig({
   css: { postcss: { plugins: [] } },
   test: {
     environment: 'jsdom',
+    exclude: ['**/node_modules/**', '**/e2e/**'],
     globals: true,
     css: false,
     setupFiles: ['./src/test/setup.ts'],

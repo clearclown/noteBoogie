@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Pause,
+  Plus,
   Play,
   SkipBack,
   SkipForward,
@@ -17,6 +18,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { audiobooksApi } from '@/lib/api/audiobooks'
 import { getApiUrl } from '@/lib/config'
 import {
@@ -24,10 +34,13 @@ import {
   useAudiobook,
   useAudiobookFigures,
   useAudiobooks,
+  useGenerateAudiobook,
 } from '@/lib/hooks/use-audiobooks'
+import { sourcesApi } from '@/lib/api/sources'
+import { useAudiobookPlayerStore } from '@/lib/stores/audiobook-player-store'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { AudiobookChapter } from '@/lib/types/audiobooks'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 /** Fetch a chapter's protected audio as an object URL (same auth pattern as EpisodeCard). */
 async function fetchChapterAudio(chapterId: string): Promise<string> {
@@ -69,7 +82,9 @@ function AudiobookDetailView({
   const { data: figures } = useAudiobookFigures(audiobookId)
 
   const [currentIndex, setCurrentIndex] = useState<number | null>(null)
-  const [autoAdvance, setAutoAdvance] = useState(true)
+  const autoAdvance = useAudiobookPlayerStore((s) => s.autoAdvance)
+  const setAutoAdvance = useAudiobookPlayerStore((s) => s.setAutoAdvance)
+  const setPosition = useAudiobookPlayerStore((s) => s.setPosition)
   const [audioSrc, setAudioSrc] = useState<string | undefined>()
   const [audioError, setAudioError] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -81,6 +96,11 @@ function AudiobookDetailView({
       index !== null && Boolean(chapters[index]?.audio_file && chapters[index]?.id),
     [chapters]
   )
+
+  // Remember the listening position (persisted).
+  useEffect(() => {
+    setPosition(audiobookId, currentIndex)
+  }, [audiobookId, currentIndex, setPosition])
 
   // Load the selected chapter's audio blob.
   useEffect(() => {
@@ -271,6 +291,14 @@ function AudiobookDetailView({
                   active && playing ? (
                     <Headphones className="h-4 w-4 shrink-0" />
                   ) : null
+                ) : chapter.generation_error ? (
+                  <Badge
+                    variant="destructive"
+                    className="shrink-0"
+                    title={chapter.generation_error}
+                  >
+                    {t('podcasts.audiobookFailed')}
+                  </Badge>
                 ) : (
                   <Badge variant="outline" className="shrink-0">
                     {t('podcasts.audiobookAudioPending')}
@@ -320,12 +348,101 @@ function AudiobookDetailView({
   )
 }
 
+function GenerateAudiobookDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const generate = useGenerateAudiobook()
+  const [sourceId, setSourceId] = useState<string>('')
+  const [name, setName] = useState('')
+  const { data: sources } = useQuery({
+    queryKey: ['sources', 'all-for-audiobook'],
+    queryFn: () => sourcesApi.list({ limit: 100 }),
+    enabled: open,
+  })
+
+  const handleSubmit = async () => {
+    if (!sourceId || !name.trim()) {
+      return
+    }
+    try {
+      await generate.mutateAsync({ audiobook_name: name.trim(), source_id: sourceId })
+      onOpenChange(false)
+    } catch (error) {
+      console.error('Failed to start audiobook generation', error)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('podcasts.audiobookGenerateTitle')}</DialogTitle>
+          <DialogDescription>{t('podcasts.audiobookGenerateDesc')}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <label className="block text-sm font-medium">
+            {t('podcasts.audiobookSourceLabel')}
+            <select
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+              value={sourceId}
+              onChange={(event) => {
+                setSourceId(event.target.value)
+                const src = sources?.find((s) => s.id === event.target.value)
+                if (src?.title && !name) {
+                  setName(src.title)
+                }
+              }}
+            >
+              <option value="">—</option>
+              {(sources ?? []).map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.title ?? source.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-medium">
+            {t('podcasts.audiobookNameLabel')}
+            <Input
+              className="mt-1"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          {generate.isError ? (
+            <p className="text-sm text-destructive">
+              {t('podcasts.audiobookGenerateError')}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button
+            onClick={() => void handleSubmit()}
+            disabled={!sourceId || !name.trim() || generate.isPending}
+          >
+            {generate.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            {t('podcasts.audiobookGenerateStart')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function AudiobooksTab() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { data: audiobooks, isLoading } = useAudiobooks()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [generateOpen, setGenerateOpen] = useState(false)
 
   const handleDelete = async (audiobookId: string) => {
     setDeletingId(audiobookId)
@@ -351,17 +468,32 @@ export function AudiobooksTab() {
     )
   }
 
+  const generateBar = (
+    <div className="flex justify-end">
+      <Button size="sm" onClick={() => setGenerateOpen(true)}>
+        <Plus className="h-4 w-4" />
+        {t('podcasts.audiobookGenerate')}
+      </Button>
+      <GenerateAudiobookDialog open={generateOpen} onOpenChange={setGenerateOpen} />
+    </div>
+  )
+
   if (!audiobooks || audiobooks.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
-        <Headphones className="mx-auto mb-3 h-8 w-8" />
-        <p>{t('podcasts.audiobooksEmpty')}</p>
+      <div className="space-y-4">
+        {generateBar}
+        <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
+          <Headphones className="mx-auto mb-3 h-8 w-8" />
+          <p>{t('podcasts.audiobooksEmpty')}</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="space-y-4">
+      {generateBar}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {audiobooks.map((audiobook) =>
         audiobook.id ? (
           <Card
@@ -402,6 +534,7 @@ export function AudiobooksTab() {
           </Card>
         ) : null
       )}
+      </div>
     </div>
   )
 }

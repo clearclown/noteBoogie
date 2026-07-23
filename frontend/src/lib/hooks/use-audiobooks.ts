@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { audiobooksApi } from '@/lib/api/audiobooks'
 
@@ -39,5 +39,17 @@ export function useAudiobookFigures(audiobookId: string | null) {
     queryKey: AUDIOBOOK_QUERY_KEYS.audiobookFigures(audiobookId ?? ''),
     queryFn: () => audiobooksApi.listFigures(audiobookId as string),
     enabled: Boolean(audiobookId),
+  })
+}
+
+export function useGenerateAudiobook() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: audiobooksApi.generate,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: AUDIOBOOK_QUERY_KEYS.audiobooks,
+      })
+    },
   })
 }

@@ -1,4 +1,10 @@
-import { Audiobook, AudiobookDetail, BookFigure } from '@/lib/types/audiobooks'
+import {
+  Audiobook,
+  AudiobookDetail,
+  BookFigure,
+  GenerateAudiobookRequest,
+  GenerateAudiobookResponse,
+} from '@/lib/types/audiobooks'
 
 /**
  * Client for the Book Navigator gateway (Rust, reinhardt-web).
@@ -35,6 +41,18 @@ export const audiobooksApi = {
     if (!response.ok) {
       throw new Error(`Gateway delete failed (${response.status})`)
     }
+  },
+
+  generate: async (payload: GenerateAudiobookRequest) => {
+    const response = await fetch(`${getGatewayUrl()}/audiobooks/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      throw new Error(`Gateway generate failed (${response.status})`)
+    }
+    return (await response.json()) as GenerateAudiobookResponse
   },
 
   figureImageUrl: (figureId: string) =>

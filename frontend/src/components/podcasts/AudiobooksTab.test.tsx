@@ -11,12 +11,21 @@ vi.mock('@/lib/api/audiobooks', () => ({
     get: vi.fn(),
     listFigures: vi.fn(),
     delete: vi.fn(),
+    generate: vi.fn(),
     figureImageUrl: (id: string) => `http://gw/figures/${id}/image`,
   },
 }))
 
 vi.mock('@/lib/config', () => ({
   getApiUrl: vi.fn(async () => 'http://api:5055'),
+}))
+
+vi.mock('@/lib/api/sources', () => ({
+  sourcesApi: {
+    list: vi.fn(async () => [
+      { id: 'source:s1', title: 'コンサル頭のつくり方' },
+    ]),
+  },
 }))
 
 import { audiobooksApi } from '@/lib/api/audiobooks'
@@ -235,6 +244,60 @@ describe('AudiobooksTab detail view', () => {
     const headers = vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>
     expect(headers?.Authorization).toBeUndefined()
     window.localStorage.removeItem('auth-storage')
+  })
+
+  it('marks a failed chapter with a destructive badge, not generating', async () => {
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.get).mockResolvedValue({
+      ...DETAIL,
+      chapters: [
+        { ...DETAIL.chapters[0] },
+        {
+          ...DETAIL.chapters[1],
+          generation_error: 'sidecar exploded',
+        },
+      ],
+    })
+    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
+    renderTab()
+    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
+    await screen.findByText('第1章：序')
+    expect(screen.getByText('podcasts.audiobookFailed')).toBeInTheDocument()
+    expect(screen.getByText('podcasts.audiobookFailed')).toHaveAttribute(
+      'title',
+      'sidecar exploded'
+    )
+    expect(screen.queryByText('podcasts.audiobookAudioPending')).not.toBeInTheDocument()
+  })
+
+  it('starts generation from the dialog with a selected source', async () => {
+    vi.mocked(audiobooksApi.list).mockResolvedValue([])
+    vi.mocked(audiobooksApi.generate).mockResolvedValue({
+      audiobook_id: 'audiobook:new',
+      audiobook_name: '本',
+      chapter_count: 8,
+      status: 'processing',
+    })
+    renderTab()
+    fireEvent.click(await screen.findByText('podcasts.audiobookGenerate'))
+    await screen.findByText('podcasts.audiobookGenerateTitle')
+
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    await waitFor(() =>
+      expect(select.querySelectorAll('option').length).toBeGreaterThan(1)
+    )
+    fireEvent.change(select, { target: { value: 'source:s1' } })
+    // Name auto-fills from the source title.
+    const nameInput = screen.getByRole('textbox') as HTMLInputElement
+    expect(nameInput.value).toBe('コンサル頭のつくり方')
+
+    fireEvent.click(screen.getByText('podcasts.audiobookGenerateStart'))
+    await waitFor(() =>
+      expect(audiobooksApi.generate).toHaveBeenCalledWith({
+        audiobook_name: 'コンサル頭のつくり方',
+        source_id: 'source:s1',
+      })
+    )
   })
 
   it('returns to the list with the back button', async () => {

@@ -14,6 +14,8 @@ export interface AudiobookChapter {
   chapter_title: string | null
   /** Relative audio path; null until the chapter has been generated. */
   audio_file: string | null
+  /** Permanent generation failure message (null while pending/succeeded). */
+  generation_error?: string | null
 }
 
 export interface Audiobook {
@@ -22,6 +24,22 @@ export interface Audiobook {
   source_id: string | null
   briefing: string | null
   chapter_count: number | null
+  created?: string | null
+}
+
+export interface GenerateAudiobookRequest {
+  audiobook_name: string
+  source_id?: string
+  content?: string
+  max_chapters?: number
+  briefing_suffix?: string
+}
+
+export interface GenerateAudiobookResponse {
+  audiobook_id: string
+  audiobook_name: string
+  chapter_count: number
+  status: string
 }
 
 export interface AudiobookDetail extends Audiobook {
