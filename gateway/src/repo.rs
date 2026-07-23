@@ -12,8 +12,8 @@ use crate::models::{Audiobook, BookFigure, ChapterEpisode, ProfileLite, SourceLi
 
 type DbResult<T> = Result<T, surrealdb::Error>;
 
-const AB_FIELDS: &str =
-    "type::string(id) AS id, name, source_id, briefing, chapter_count, created";
+const AB_FIELDS: &str = "type::string(id) AS id, name, source_id, briefing, \
+     chapter_count, type::string(created) AS created";
 
 pub async fn list_audiobooks(db: &Surreal<Any>) -> DbResult<Vec<Audiobook>> {
     let q = format!("SELECT {AB_FIELDS} FROM audiobook ORDER BY created DESC");
@@ -27,7 +27,8 @@ pub async fn get_audiobook(db: &Surreal<Any>, full_id: &str) -> DbResult<Option<
 }
 
 pub async fn get_chapters(db: &Surreal<Any>, audiobook_full_id: &str) -> DbResult<Vec<ChapterEpisode>> {
-    let q = "SELECT type::string(id) AS id, name, chapter_index, chapter_title, audio_file \
+    let q = "SELECT type::string(id) AS id, name, chapter_index, chapter_title, audio_file, \
+             generation_error \
              FROM episode WHERE type::string(audiobook) = $ab ORDER BY chapter_index ASC";
     db.query(q)
         .bind(("ab", audiobook_full_id.to_string()))
@@ -98,8 +99,11 @@ pub async fn create_audiobook(
     chapter_count: i64,
 ) -> DbResult<String> {
     db.query(
+        // created is set explicitly so schemaless test DBs (mem://) match the
+        // SCHEMAFULL default from migration 24.
         "CREATE type::thing('audiobook', $aid) SET \
-         name = $name, source_id = $src, briefing = $br, chapter_count = $cc RETURN NONE",
+         name = $name, source_id = $src, briefing = $br, chapter_count = $cc, \
+         created = time::now() RETURN NONE",
     )
     .bind(("aid", id_part.to_string()))
     .bind(("name", name.to_string()))
@@ -182,6 +186,23 @@ pub fn relative_audio_path(path: &str) -> String {
         Some(idx) => path[idx + "/podcasts/".len()..].to_string(),
         None => path.to_string(),
     }
+}
+
+/// Record a permanent generation failure so the UI can surface it
+/// (otherwise a failed chapter looks "generating" forever).
+pub async fn set_episode_error(
+    db: &Surreal<Any>,
+    episode_full_id: &str,
+    message: &str,
+) -> DbResult<()> {
+    db.query(
+        "UPDATE episode SET generation_error = $msg WHERE type::string(id) = $id RETURN NONE",
+    )
+    .bind(("id", episode_full_id.to_string()))
+    .bind(("msg", message.to_string()))
+    .await?
+    .check()?;
+    Ok(())
 }
 
 /// Record a generated chapter's audio + transcript/outline (JSON strings).

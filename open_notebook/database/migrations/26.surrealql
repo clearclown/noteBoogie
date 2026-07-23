@@ -1,0 +1,6 @@
+-- Migration 26: per-chapter generation error visibility (Book Navigator).
+-- The gateway's background generation loop previously only logged failures;
+-- a failed chapter looked "generating" forever in the UI. Store the error so
+-- list/detail responses can surface it.
+
+DEFINE FIELD IF NOT EXISTS generation_error ON TABLE episode TYPE option<string>;

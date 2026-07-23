@@ -11,6 +11,8 @@ pub struct Audiobook {
     pub source_id: Option<String>,
     pub briefing: Option<String>,
     pub chapter_count: Option<i64>,
+    #[serde(default)]
+    pub created: Option<String>,
 }
 
 /// One chapter episode as exposed to clients.
@@ -21,6 +23,9 @@ pub struct ChapterEpisode {
     pub chapter_index: Option<i64>,
     pub chapter_title: Option<String>,
     pub audio_file: Option<String>,
+    /// Permanent generation failure message (None while pending/succeeded).
+    #[serde(default)]
+    pub generation_error: Option<String>,
 }
 
 /// Audiobook + ordered chapters (GET /audiobooks/{id}).
@@ -117,6 +122,7 @@ mod tests {
                 source_id: None,
                 briefing: Some("b".into()),
                 chapter_count: Some(1),
+                created: None,
             },
             chapters: vec![ChapterEpisode {
                 id: Some("episode:e".into()),
@@ -124,6 +130,7 @@ mod tests {
                 chapter_index: Some(0),
                 chapter_title: Some("序".into()),
                 audio_file: None,
+                generation_error: None,
             }],
         };
         let v = serde_json::to_value(&detail).unwrap();

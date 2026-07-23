@@ -322,6 +322,14 @@ pub async fn generate_audiobook(
                 }
                 Err(e) => {
                     eprintln!("chapter generation failed {}: {e}", job.episode_full_id);
+                    if let Err(persist_err) =
+                        repo::set_episode_error(db, &job.episode_full_id, &e.to_string()).await
+                    {
+                        eprintln!(
+                            "failed to record chapter error {}: {persist_err}",
+                            job.episode_full_id
+                        );
+                    }
                 }
             }
         }

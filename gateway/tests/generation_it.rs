@@ -200,4 +200,12 @@ async fn background_generation_persists_results_and_survives_failures() {
         "failed chapter stays audio-less"
     );
     assert!(chapters[1]["audio_file"].is_string(), "later chapter unaffected");
+
+    // The failure is persisted and surfaced to clients (migration 26) — the
+    // UI must be able to distinguish "failed" from "still generating".
+    let error = chapters[0]["generation_error"]
+        .as_str()
+        .expect("generation_error persisted for the failed chapter");
+    assert!(error.contains("mock generation failure"), "got: {error}");
+    assert!(chapters[1]["generation_error"].is_null());
 }

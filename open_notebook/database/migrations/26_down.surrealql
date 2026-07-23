@@ -1,0 +1,1 @@
+REMOVE FIELD IF EXISTS generation_error ON TABLE episode;
