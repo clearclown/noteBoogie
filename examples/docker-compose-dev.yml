@@ -2,7 +2,9 @@ services:
   surrealdb:
     image: surrealdb/surrealdb:v2
     volumes:
-      - ./surreal_data:/mydata
+      # リポジトリルートの surreal_data に統一（docker-compose.book.yml と同じ実体。
+      # compose の相対パスはファイル位置基準のため ../ が必要）
+      - ../surreal_data:/mydata
     environment:
       - SURREAL_EXPERIMENTAL_GRAPHQL=true
     ports:
