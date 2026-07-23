@@ -44,9 +44,14 @@ export function LoginForm() {
       try {
         const required = await checkAuthRequired()
 
-        // If auth is not required, redirect to notebooks
+        // If auth is not required, continue to the deep link the dashboard
+        // guard stashed (if any) instead of dropping it.
         if (!required) {
-          router.push('/notebooks')
+          const redirectPath = sessionStorage.getItem('redirectAfterLogin')
+          if (redirectPath) {
+            sessionStorage.removeItem('redirectAfterLogin')
+          }
+          router.push(redirectPath || '/notebooks')
         }
       } catch (error) {
         console.error('Error checking auth requirement:', error)
@@ -59,7 +64,11 @@ export function LoginForm() {
     // If we already know auth status, use it
     if (authRequired !== null) {
       if (!authRequired && isAuthenticated) {
-        router.push('/notebooks')
+        const redirectPath = sessionStorage.getItem('redirectAfterLogin')
+        if (redirectPath) {
+          sessionStorage.removeItem('redirectAfterLogin')
+        }
+        router.push(redirectPath || '/notebooks')
       } else {
         setIsCheckingAuth(false)
       }
