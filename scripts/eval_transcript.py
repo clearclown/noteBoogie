@@ -132,6 +132,48 @@ def politeness_score(text: str) -> float:
     return round(polite / len(sentences), 3)
 
 
+# 合成報酬の重み。既定は手設計だが、報酬蒸留（scripts/distill_reward.py が
+# 章の👍/👎から学習して data/rl/reward_weights.json を書く）で上書きできる。
+# ゲート（sidecar）と最適化器は composite 経由でこの重みを共有する。
+DEFAULT_REWARD_WEIGHTS = {
+    "structure": 0.35,
+    "grounding": 0.4,
+    "politeness": 0.15,
+    "length": 0.1,
+}
+REWARD_WEIGHTS_FILE_ENV = "REWARD_WEIGHTS_FILE"
+_DEFAULT_WEIGHTS_PATH = "data/rl/reward_weights.json"
+_weights_cache: dict | None = None
+
+
+def load_reward_weights() -> dict:
+    """蒸留済み重みがあれば読む（プロセス内キャッシュ、不正値は既定へフォールバック）。"""
+    global _weights_cache
+    if _weights_cache is not None:
+        return _weights_cache
+    import os
+
+    path = Path(os.getenv(REWARD_WEIGHTS_FILE_ENV, _DEFAULT_WEIGHTS_PATH))
+    weights = dict(DEFAULT_REWARD_WEIGHTS)
+    try:
+        if path.exists():
+            data = json.loads(path.read_text())
+            candidate = {k: float(data[k]) for k in DEFAULT_REWARD_WEIGHTS}
+            total = sum(candidate.values())
+            if total > 0 and all(v >= 0 for v in candidate.values()):
+                weights = {k: round(v / total, 4) for k, v in candidate.items()}
+    except Exception:  # noqa: BLE001 - bad weights must never break scoring
+        weights = dict(DEFAULT_REWARD_WEIGHTS)
+    _weights_cache = weights
+    return weights
+
+
+def _reset_weights_cache() -> None:
+    """テスト用: 重みキャッシュを破棄する。"""
+    global _weights_cache
+    _weights_cache = None
+
+
 @dataclass
 class ChapterEval:
     chapter: str
@@ -143,11 +185,14 @@ class ChapterEval:
 
     @property
     def composite(self) -> float:
-        """総合報酬（optimize_briefing.py と共有する重み）。"""
+        """総合報酬（ゲート・optimize_briefing と共有。重みは蒸留で更新可能）。"""
+        w = load_reward_weights()
         return round(
-            0.35 * self.structure + 0.4 * self.grounding + 0.15 * self.politeness
+            w["structure"] * self.structure
+            + w["grounding"] * self.grounding
+            + w["politeness"] * self.politeness
             # 台本が極端に薄い/水増しのときに減点（1.0〜8.0倍を許容帯とする）
-            + 0.1 * (1.0 if 1.0 <= self.length_ratio <= 8.0 else 0.5),
+            + w["length"] * (1.0 if 1.0 <= self.length_ratio <= 8.0 else 0.5),
             3,
         )
 

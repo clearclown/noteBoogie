@@ -57,14 +57,19 @@ Claude Code / 任意の MCP クライアントから呼べるようにする。
 
 Phase O で LLM-as-optimizer（OPRO系）は稼働済み。真のRLへの発展径路:
 
-**段階1（済）**: 行動=自由編集、方策=optimizer LLM、報酬=品質−λ·トークン
-**段階2**: 行動の離散化 — 編集オペレータ集合を定義
-  （例: `add_rule(text)` / `remove_sentence(i)` / `rephrase(i, style)` /
-  `reorder(i,j)` / `set_length_hint(n)`）。これで (状態, 行動, 報酬) の
-  ログが蓄積可能になり、bandit（Thompson sampling でオペレータ選択）→
-  方策勾配（小型LMをLoRAで微調整）へ進める
-**段階3**: 報酬モデル蒸留 — 人手評価（聴いた感想）を少量集めて
-  自動指標との回帰を学習、judge を報酬モデル化
+**段階1（✅済）**: 行動=自由編集、方策=optimizer LLM、報酬=品質−λ·トークン
+  （`optimize_briefing.py`、実測 0.688→0.732、本番反映済み）
+**段階2（✅済 2026-07）**: `optimize_briefing_bandit.py` — 行動を離散オペレータ
+  （add_rule / remove_sentence / rephrase_sentence / reorder / set_length_hint〔決定的〕）
+  に固定し、**Thompson sampling**（オペレータ別 Beta(α,β)、`data/rl/bandit_state.json`
+  に永続化=実行を跨いで学習）で選択。(状態ハッシュ, 行動, 報酬前後, 成否) を
+  `data/rl/bandit_log.jsonl` に蓄積 — **方策勾配（小型LMのLoRA微調整）の学習データ**。
+  残: ログが溜まった後の方策勾配への差し替え
+**段階3（✅ハーネス済 2026-07）**: `distill_reward.py` — 章の👍/👎（episode.feedback）を
+  教師に自動4指標のロジスティック回帰（依存なしの素実装）→ 正規化重みを
+  `data/rl/reward_weights.json` へ。**eval_transcript.composite がこのファイルを読む**ため、
+  ゲート（sidecar）と両最適化器の報酬が人間の好みに追随する。
+  残: 実データ蓄積（最低10件・両ラベル）→ 実行 `--apply`
 
 **決めるべき論点**:
 - [ ] 最適化対象の拡張: briefing 以外（図キャプションプロンプト、ask/chat の
