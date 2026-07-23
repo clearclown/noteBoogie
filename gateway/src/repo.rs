@@ -213,6 +213,17 @@ pub async fn clear_episode_error(db: &Surreal<Any>, episode_full_id: &str) -> Db
     Ok(())
 }
 
+/// Remap a host-absolute figure path into this process's DATA_FOLDER.
+///
+/// Ingest stores absolute host paths (e.g. /Users/x/noteBoogie/data/books/…);
+/// inside a container the same file lives under /app/data/…. When the stored
+/// path has a "/data/" segment, rebuild it against the local data folder.
+pub fn remap_into_data_folder(path: &str, data_folder: &str) -> Option<String> {
+    let idx = path.rfind("/data/")?;
+    let suffix = &path[idx + "/data/".len()..];
+    Some(format!("{}/{}", data_folder.trim_end_matches('/'), suffix))
+}
+
 /// Convert a sidecar-produced audio path to the DB storage form: relative to
 /// PODCASTS_FOLDER (e.g. "episodes/<id>/audio/<file>.mp3"), mirroring the
 /// Python side's `to_relative_audio_path` (#1030). The API treats absolute
@@ -278,7 +289,7 @@ pub async fn set_episode_result(
 
 #[cfg(test)]
 mod tests {
-    use super::relative_audio_path;
+    use super::{relative_audio_path, remap_into_data_folder};
 
     #[test]
     fn relativizes_sidecar_output_paths() {
@@ -296,6 +307,19 @@ mod tests {
         );
         // No podcasts root — left as-is (legacy-invalid on the API side).
         assert_eq!(relative_audio_path("/somewhere/else/a.mp3"), "/somewhere/else/a.mp3");
+    }
+
+    #[test]
+    fn remaps_host_paths_into_the_local_data_folder() {
+        assert_eq!(
+            remap_into_data_folder(
+                "/Users/x/noteBoogie/data/books/b/images/f.png",
+                "/app/data"
+            )
+            .as_deref(),
+            Some("/app/data/books/b/images/f.png")
+        );
+        assert!(remap_into_data_folder("/srv/elsewhere/f.png", "/app/data").is_none());
     }
 
     #[test]

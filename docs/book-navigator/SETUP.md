@@ -68,3 +68,24 @@ uv run --env-file .env python scripts/setup_book_navigator_models.py \
 - `book_navigator`（episode profile）と `book_navigator_mentor`（speaker profile）にモデルをリンク
 - `--set-defaults` で chat / transformation / tools / large_context / embedding / TTS の DefaultModels も一括設定（chat・ask・埋め込みに必須）
 - モデルはクレデンシャル未リンクで登録され、実行時に環境変数のキーへフォールバックします
+
+## 6. Docker / Podman で全部起動（Tailscale 対応）
+
+ホストにツール群を入れずに全サービスをコンテナで動かす場合:
+
+```bash
+podman compose -f docker-compose.book.yml up -d --build   # docker compose でも可
+```
+
+起動するもの: SurrealDB / open_notebook（フロント:8502 + API:5055 + worker）/
+sidecar（LLM+TTS, :50069 内部）/ gateway（:8088）。`./data` を全コンテナで共有します。
+
+**Tailscale からのアクセス**: 5055/8088/8502 は 0.0.0.0 に公開されるため、同じ
+tailnet の端末から `http://<マシンのtailscale名>:8502` でそのまま使えます。
+フロントの gateway 接続先は**アクセス元のホスト名から実行時に導出**されるので
+追加設定は不要です（SurrealDB:8000 のみ既定クレデンシャルのため localhost 限定）。
+
+注意:
+- PDF変換（superbook-pdf）はホスト側で実行します（MPS はコンテナから使えないため）。
+  `make convert-book` → `make ingest-book` はホストで実行し、`./data` 経由で共有
+- ホストで ingest した図の絶対パスは、gateway コンテナ側で `/app/data` に自動リマップされます

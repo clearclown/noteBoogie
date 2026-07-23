@@ -150,8 +150,25 @@ pub async fn get_figure_image(Path(id): Path<String>) -> ViewResult<Response> {
                 .try_with_header("content-type", content_type)
                 .map_err(Into::into)
         }
-        Err(e) => {
-            eprintln!("figure image read failed {path}: {e}");
+        Err(read_err) => {
+            // Containerized gateway: the DB may hold a host-absolute path from
+            // an on-host ingest. Retry inside this process's DATA_FOLDER.
+            let data_folder = Config::from_env().data_folder;
+            if let Some(remapped) = repo::remap_into_data_folder(&path, &data_folder) {
+                if let Ok(bytes) = std::fs::read(&remapped) {
+                    let content_type = if remapped.ends_with(".jpg") || remapped.ends_with(".jpeg")
+                    {
+                        "image/jpeg"
+                    } else {
+                        "image/png"
+                    };
+                    return Response::ok()
+                        .with_body(bytes)
+                        .try_with_header("content-type", content_type)
+                        .map_err(Into::into);
+                }
+            }
+            eprintln!("figure image read failed {path}: {read_err}");
             Response::not_found()
                 .with_json(&json!({"error": "image file missing"}))
                 .map_err(Into::into)

@@ -1,0 +1,85 @@
+# Book Navigator フルスタック（SurrealDB + API/worker/フロント + sidecar + gateway）
+#
+#   podman compose -f docker-compose.book.yml up -d --build
+#   （docker compose でも同じ）
+#
+# Tailscale から使う:
+#   ポートは 0.0.0.0 に公開されるので、同じ tailnet の端末から
+#   http://<このマシンのtailscale名>:8502  (UI)
+#   http://<このマシンのtailscale名>:5055  (API)
+#   http://<このマシンのtailscale名>:8088  (gateway)
+#   でそのままアクセスできる。フロントの gateway URL は接続元ホスト名から
+#   実行時に導出される（NEXT_PUBLIC_GATEWAY_URL 不要）。
+#   SurrealDB(8000) だけは既定クレデンシャルのため localhost 限定。
+#
+# 必須 .env: OPEN_NOTEBOOK_ENCRYPTION_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    command: ["start", "--log", "info", "--user", "${SURREAL_USER:-root}", "--pass", "${SURREAL_PASSWORD:-root}", "rocksdb:/mydata/mydatabase.db"]
+    user: root
+    ports:
+      - "127.0.0.1:8000:8000"   # デバッグ用。tailnet には公開しない
+    volumes:
+      - ./surreal_data:/mydata
+    restart: always
+
+  open_notebook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8502:8502"   # フロント
+      - "5055:5055"   # API
+    env_file:
+      - .env
+    environment:
+      - SURREAL_URL=ws://surrealdb:8000/rpc
+      - SURREAL_USER=${SURREAL_USER:-root}
+      - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
+      - SURREAL_NAMESPACE=${SURREAL_NAMESPACE:-open_notebook}
+      - SURREAL_DATABASE=${SURREAL_DATABASE:-open_notebook}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - surrealdb
+    restart: always
+
+  sidecar:
+    build:
+      context: .
+      dockerfile: sidecar/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - SURREAL_URL=ws://surrealdb:8000/rpc
+      - SURREAL_USER=${SURREAL_USER:-root}
+      - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
+      - SURREAL_NAMESPACE=${SURREAL_NAMESPACE:-open_notebook}
+      - SURREAL_DATABASE=${SURREAL_DATABASE:-open_notebook}
+    volumes:
+      - ./data:/app/data     # mp3 出力を API と共有
+    depends_on:
+      - surrealdb
+    restart: always
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8088:8088"
+    environment:
+      - SURREAL_URL=ws://surrealdb:8000/rpc
+      - SURREAL_USER=${SURREAL_USER:-root}
+      - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
+      - SURREAL_NAMESPACE=${SURREAL_NAMESPACE:-open_notebook}
+      - SURREAL_DATABASE=${SURREAL_DATABASE:-open_notebook}
+      - SIDECAR_GRPC_ADDR=http://sidecar:50069
+    volumes:
+      - ./data:/app/data     # 音声クリーンアップ + 図画像の配信に使用
+    depends_on:
+      - surrealdb
+      - sidecar
+    restart: always
