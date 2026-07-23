@@ -121,11 +121,32 @@ pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter>
         chapters.push(Chapter { title, body });
     }
 
-    // Merge consecutive same-title chapters (OCR running headers).
+    // Running headers (柱) re-emit chapter AND part titles on alternating
+    // pages, so consecutive-dedupe alone still splits a book into hundreds of
+    // fragments. Rule: a heading occurrence starts a chapter only if it is the
+    // FIRST SUBSTANTIAL occurrence of that title (TOC lines are tiny and thus
+    // never anchor). Every other occurrence — repeats and tiny firsts — is a
+    // continuation of whatever chapter is currently open, preserving document
+    // order.
+    let mut first_substantial: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::new();
+    for (i, ch) in chapters.iter().enumerate() {
+        if body_content_chars(&ch.body) >= MIN_CHAPTER_BODY_CHARS
+            && !first_substantial.contains_key(ch.title.as_str())
+        {
+            first_substantial.insert(ch.title.as_str(), i);
+        }
+    }
+    let anchors: Vec<bool> = chapters
+        .iter()
+        .enumerate()
+        .map(|(i, ch)| first_substantial.get(ch.title.as_str()) == Some(&i))
+        .collect();
+
     let mut merged: Vec<Chapter> = Vec::with_capacity(chapters.len());
-    for ch in chapters {
+    for (ch, is_anchor) in chapters.into_iter().zip(anchors) {
         match merged.last_mut() {
-            Some(prev) if prev.title == ch.title => {
+            Some(prev) if !is_anchor => {
                 prev.body.push_str("\n\n");
                 prev.body.push_str(&ch.body);
             }
@@ -260,6 +281,32 @@ mod tests {
         assert!(chapters[0].body.contains("p1"));
         assert!(chapters[0].body.contains("p2"));
         assert_eq!(chapters[1].title, "第1章 入門");
+    }
+
+    #[test]
+    fn alternating_running_headers_do_not_fragment() {
+        // Real vertical books alternate PART and CHAPTER running headers on
+        // odd/even pages: 第1部, 第1章, 第1部, 第1章, … Consecutive dedupe
+        // alone exploded a 408-page book into 123 "chapters". Only the first
+        // substantial occurrence of a title may open a chapter.
+        let md = format!(
+            "# 第1部 入門編\n{}\n\n# 第1章 全体像\n{}\n\n# 第1部 入門編\n{}\n\n# 第1章 全体像\n{}\n\n# 第2章 思考\n{}\n\n# 第1部 入門編\n{}",
+            body("p30"),
+            body("p31"),
+            body("p32"),
+            body("p33"),
+            body("p36"),
+            body("p37")
+        );
+        let chapters = split_into_chapters(&md, "本");
+        let titles: Vec<&str> = chapters.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, vec!["第1部 入門編", "第1章 全体像", "第2章 思考"]);
+        // Continuation pages stay in DOCUMENT order inside the open chapter.
+        assert!(chapters[1].body.contains("p31"));
+        assert!(chapters[1].body.contains("p32"), "柱 page folds into current");
+        assert!(chapters[1].body.contains("p33"));
+        assert!(chapters[2].body.contains("p36"));
+        assert!(chapters[2].body.contains("p37"));
     }
 
     #[test]
