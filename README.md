@@ -105,6 +105,7 @@ CI（GitHub Actions）は上記すべて + lint / typecheck / build を実行し
 ## ドキュメント
 
 - **[docs/book-navigator/](docs/book-navigator/README.md)** … 本フォークのセットアップ詳細・使い方・アーキテクチャ・発展ロードマップ（日本語）
+- [docs/book-navigator/COMPARISON.md](docs/book-navigator/COMPARISON.md) … **NotebookLM / Open Notebook / noteBoogie 3者比較**（なぜハルシネーションが構造的に減るのか）
 - [docs/](docs/index.md) … フォーク元 Open Notebook の公式ドキュメント（英語）
 - `.kiro/specs/` … 開発時の要件・設計・タスク定義
 

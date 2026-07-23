@@ -237,5 +237,5 @@ score' = similarity × effective(source)
 |---|---|---|---|
 | C1 | migration 28（mentor_message + mentor_source_weight）+ recall 傾斜（手動×自動）+ テスト | S〜M | ✅ 完了 |
 | C2 | v1 会話UI（§1〜§7のまま）+ ⚖️傾斜タブ + API | M | ✅ 完了（API: `api/mentor_service.py`+router・pytest23件 / フロント: `/mentor` ページ・vitest10件・Playwright2件・i18n 14ロケール） |
-| C3 | スライドレビュー: 画像/PDF 経路（vision）+ migration 29 + 📊タブ | M | 未着手 |
-| C4 | pptx 構造解析 lint（python-pptx）を C3 に合流 + §11b 修正適用 | S〜M | 未着手 |
+| C3 | スライドレビュー: 画像/PDF 経路（vision）+ migration 29 + 📊タブ | M | ✅ 完了（`api/slide_review_service.py`、pypdfium2 でPDFラスタライズ、品質ゲート閾値3.0） |
+| C4 | pptx 構造解析 lint（python-pptx）を C3 に合流 + §11b 修正適用 | S〜M | ✅ 完了（`api/pptx_coach.py`: フォント正規化/整列スナップ/表ヘッダ太字を選択適用 → `_coached.pptx`。色丸めは指摘のみ＝ブランド色保護） |

@@ -10,5 +10,6 @@
 | [ADVANCED_ROADMAP.md](ADVANCED_ROADMAP.md) | 発展ロードマップ（MCP拡張・メンターAI・RL段階2）と決めるべき論点 |
 | [MENTOR_UI_DESIGN.md](MENTOR_UI_DESIGN.md) | メンターAI フロントエンドUIの設計書（/mentor ページ・API・テスト計画） |
 | [RETROSPECTIVE.md](RETROSPECTIVE.md) | 開発振り返り（インシデント・学び・数値） |
+| [COMPARISON.md](COMPARISON.md) | NotebookLM / Open Notebook / noteBoogie 3者比較（機能表 + ハルシネーション層別分析） |
 
 クイックスタートはリポジトリ直下の [README.md](../../README.md) を参照してください。
