@@ -28,6 +28,120 @@ except ImportError as e:  # pragma: no cover - environment guard
     raise ValueError("podcast_creator library not available")
 
 
+def build_synthetic_outline(num_segments: int):
+    """Fixed Book Navigator outline (課題 → 3要点 → アクションプラン).
+
+    The briefing already dictates this exact structure, so paying an outline
+    LLM call per chapter (which re-reads the whole chapter) is redundant for
+    single-speaker monologues. Used by the single-pass path.
+    """
+    from podcast_creator.core import Outline, Segment
+
+    segments = [
+        Segment(
+            name="導入",
+            description="この章が解決するビジネス上の課題を提示し、これから話す3つの要点を予告する",
+            size="short",
+        ),
+        Segment(
+            name="本編",
+            description="重要な3つのコンセプトを『1つ目は』『2つ目は』『3つ目は』と番号を数えながら、結論→説明の順で語る",
+            size="long",
+        ),
+        Segment(
+            name="アクションプラン",
+            description="明日からそのまま真似できる手順を1ステップずつ具体的に示して締める",
+            size="medium",
+        ),
+    ]
+    return Outline(segments=segments[: max(1, min(num_segments, len(segments)))] if num_segments < 3 else segments)
+
+
+def _build_single_pass_graph():
+    """Compile the podcast graph WITHOUT the outline node (transcript → TTS)."""
+    from langgraph.graph import END, START, StateGraph
+    from podcast_creator.nodes import (
+        combine_audio_node,
+        generate_all_audio_node,
+        generate_transcript_node,
+        route_audio_generation,
+    )
+    from podcast_creator.state import PodcastState
+
+    workflow = StateGraph(PodcastState)
+    workflow.add_node("generate_transcript", generate_transcript_node)
+    workflow.add_node("generate_all_audio", generate_all_audio_node)
+    workflow.add_node("combine_audio", combine_audio_node)
+    workflow.add_edge(START, "generate_transcript")
+    workflow.add_conditional_edges(
+        "generate_transcript", route_audio_generation, ["generate_all_audio"]
+    )
+    workflow.add_edge("generate_all_audio", "combine_audio")
+    workflow.add_edge("combine_audio", END)
+    return workflow.compile()
+
+
+_single_pass_graph = None
+
+
+async def create_podcast_single_pass(
+    *,
+    content: str,
+    briefing: str,
+    episode_name: str,
+    output_dir: str,
+    speaker_config: str,
+    episode_profile: str,
+) -> dict:
+    """Single-LLM-pass variant of podcast_creator.create_podcast.
+
+    Skips the outline LLM call by injecting the fixed Book Navigator outline;
+    everything else (transcript LLM, per-segment TTS, mp3 assembly) reuses
+    podcast-creator's own nodes. Roughly halves script-LLM input cost and
+    removes one model round-trip per chapter.
+    """
+    from pathlib import Path as _Path
+
+    from podcast_creator.episodes import load_episode_config
+    from podcast_creator.language import resolve_language_name
+    from podcast_creator.speakers import load_speaker_config
+    from podcast_creator.state import PodcastState
+
+    global _single_pass_graph
+    if _single_pass_graph is None:
+        _single_pass_graph = _build_single_pass_graph()
+
+    episode_config = load_episode_config(episode_profile)
+    output_path = _Path(output_dir)
+    output_path.mkdir(exist_ok=True, parents=True)
+
+    initial_state = PodcastState(
+        content=content,
+        briefing=briefing or episode_config.default_briefing,
+        num_segments=episode_config.num_segments or 3,
+        language=(
+            resolve_language_name(episode_config.language)
+            if episode_config.language
+            else None
+        ),
+        outline=build_synthetic_outline(episode_config.num_segments or 3),
+        transcript=[],
+        audio_clips=[],
+        final_output_file_path=None,
+        output_dir=output_path,
+        episode_name=episode_name,
+        speaker_profile=load_speaker_config(speaker_config),
+    )
+    config = {
+        "configurable": {
+            "transcript_provider": episode_config.transcript_provider,
+            "transcript_model": episode_config.transcript_model,
+            "transcript_config": episode_config.transcript_config,
+        }
+    }
+    return await _single_pass_graph.ainvoke(initial_state, config=config)
+
+
 @dataclass
 class CreatePodcastResult:
     final_output_file_path: Optional[str]
@@ -136,18 +250,35 @@ async def run_create_podcast(
     The caller (Rust gateway) loops this per chapter for audiobooks and owns
     the output_dir (a per-episode UUID directory) and persistence.
     """
+    import os
+
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     await _configure_podcast_creator()
 
-    logger.info(f"Sidecar create_podcast: episode_name={episode_name}")
-    result = await create_podcast(
-        content=content,
-        briefing=briefing,
-        episode_name=episode_name,
-        output_dir=output_dir,
-        speaker_config=speaker_config,
-        episode_profile=episode_profile,
+    # SIDECAR_SINGLE_PASS=1 skips the outline LLM call (fixed monologue
+    # structure). Default off until the eval harness confirms parity.
+    single_pass = os.getenv("SIDECAR_SINGLE_PASS", "").lower() in ("1", "true", "yes")
+    logger.info(
+        f"Sidecar create_podcast: episode_name={episode_name} single_pass={single_pass}"
     )
+    if single_pass:
+        result = await create_podcast_single_pass(
+            content=content,
+            briefing=briefing,
+            episode_name=episode_name,
+            output_dir=output_dir,
+            speaker_config=speaker_config,
+            episode_profile=episode_profile,
+        )
+    else:
+        result = await create_podcast(
+            content=content,
+            briefing=briefing,
+            episode_name=episode_name,
+            output_dir=output_dir,
+            speaker_config=speaker_config,
+            episode_profile=episode_profile,
+        )
 
     return CreatePodcastResult(
         final_output_file_path=(

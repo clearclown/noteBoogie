@@ -262,3 +262,57 @@ async def test_create_podcast_unexpected_error_maps_to_internal(monkeypatch):
     with pytest.raises(_Abort):
         await sc.PodcastSidecarServicer().CreatePodcast(request, context)
     assert context.abort.call_args.args[0] == grpc.StatusCode.INTERNAL
+
+
+# ---------------------------------------------------------------------------
+# Single-pass (outline-skip) path
+# ---------------------------------------------------------------------------
+
+
+def test_synthetic_outline_encodes_the_three_part_structure():
+    from sidecar.podcast_runner import build_synthetic_outline
+
+    outline = build_synthetic_outline(3)
+    names = [s.name for s in outline.segments]
+    assert names == ["導入", "本編", "アクションプラン"]
+    assert outline.segments[1].size == "long"
+    # Fewer segments requested -> truncated, never empty.
+    assert len(build_synthetic_outline(1).segments) == 1
+    assert len(build_synthetic_outline(0).segments) == 1
+
+
+def test_single_pass_graph_has_no_outline_node():
+    from sidecar.podcast_runner import _build_single_pass_graph
+
+    graph = _build_single_pass_graph()
+    nodes = set(graph.get_graph().nodes)
+    assert "generate_transcript" in nodes
+    assert "generate_all_audio" in nodes
+    assert "combine_audio" in nodes
+    assert "generate_outline" not in nodes
+
+
+@pytest.mark.asyncio
+async def test_run_create_podcast_routes_on_env_flag(monkeypatch, tmp_path):
+    from unittest.mock import AsyncMock
+
+    from sidecar import podcast_runner as pr
+
+    monkeypatch.setattr(pr, "_configure_podcast_creator", AsyncMock())
+    two_pass = AsyncMock(return_value=None)
+    one_pass = AsyncMock(return_value=None)
+    monkeypatch.setattr(pr, "create_podcast", two_pass)
+    monkeypatch.setattr(pr, "create_podcast_single_pass", one_pass)
+
+    kwargs = dict(
+        content="c", briefing="b", episode_name="e",
+        output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
+    )
+    monkeypatch.delenv("SIDECAR_SINGLE_PASS", raising=False)
+    await pr.run_create_podcast(**kwargs)
+    two_pass.assert_awaited_once()
+    one_pass.assert_not_awaited()
+
+    monkeypatch.setenv("SIDECAR_SINGLE_PASS", "1")
+    await pr.run_create_podcast(**kwargs)
+    one_pass.assert_awaited_once()
