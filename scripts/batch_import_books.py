@@ -298,8 +298,11 @@ async def recover_missing() -> None:
         abs_ = await repo_query(
             "SELECT type::string(id) AS id FROM audiobook WHERE source_id = $s", {"s": sid}
         )
-        if not abs_:
+        skip = {t.strip() for t in os.getenv("RECOVER_SKIP_TITLES", "").split(",") if t.strip()}
+        if not abs_ and title not in skip:
             tasks.append(generate_audiobook(title, sid, gen_sem))
+        elif title in skip:
+            log(f"生成スキップ（指定）: {title}")
     # 既存オーディオブックの失敗章をリトライ
     failed = await repo_query(
         "SELECT type::string(id) AS id, name FROM episode WHERE generation_error != NONE"
