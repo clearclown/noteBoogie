@@ -25,7 +25,8 @@ SurrealDB
         │    章分割（chapters.rs）→ 章episode作成 → tokio::spawn ループ
         ▼
      Python sidecar :50069（gRPC / protos/podcast.proto）
-        podcast-creator: outline LLM → transcript LLM → TTS → mp3
+        transcript LLM → **品質ゲート**（採点→未達なら批評付き再生成1回→棄却）→ TTS → mp3
+        （採点は eval_transcript の正規表現指標。棄却は TTS 前 = 費用ゼロで止まる）
         │  結果は gateway が episode に永続化（audio_file は PODCASTS_FOLDER 相対）
         ▼
      フロント :3000（Next.js）
@@ -66,6 +67,8 @@ OCR本文の「ほぼ空の章」から LLM が尤もらしい台本を捏造す
 | 26 | `episode.generation_error`（失敗の可視化） |
 | 27 | `mentor_memory`（師匠の長期記憶: 質問・要点・参照本） |
 | 28 | `mentor_message`（/mentor 表示用の会話生ログ）+ `mentor_source_weight`（本単位 0〜2 + 章単位の学習傾斜、source UNIQUE） |
+| 29 | `slide_review`（スライドレビューの5軸採点・ゲート判定・pptx 原本パス） |
+| 30 | `quality_event`（ゲート/Self-RAG 判定ログ = 閾値較正・報酬蒸留のデータ）+ `episode.feedback`（章の👍/👎） |
 
 登録は `open_notebook/database/async_migrate.py`（ハードコード必須）。upstream が番号を消費するため、マージ時は**改番**が必要になることがある（16/17→24/25 の前例）。`tests/test_book_navigator_migrations.py` が番号ギャップを監視。
 

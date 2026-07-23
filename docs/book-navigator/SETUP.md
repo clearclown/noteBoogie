@@ -43,6 +43,8 @@ ai_bridge/ai_venv/bin/python -c "import torch; print(torch.backends.mps.is_avail
 | `SIDECAR_GRPC_ADDR` | gateway→sidecar（既定 http://127.0.0.1:50069） |
 | `NEXT_PUBLIC_GATEWAY_URL` | フロント→gateway の上書き（未設定ならアクセス元ホスト名から実行時導出、frontend 側の env） |
 | `MENTOR_TTS_VOICE` | 師匠回答の読み上げボイス（既定 kore） |
+| `SIDECAR_GATE` / `SIDECAR_GATE_THRESHOLD` | 台本の品質ゲート（既定 ON / 閾値 0.6）。未達は批評付き再生成1回→棄却 |
+| `ASK_EVIDENCE_FLOOR` / `MENTOR_EVIDENCE_FLOOR` | Self-RAG の根拠下限（既定 0.4）。検索類似度がこれ未満なら「根拠なし」と正直に断る |
 
 `DATA_FOLDER` は Open Notebook 本体が `./data` に固定しているため、**gateway もリポジトリルートから起動する**必要があります（`make book-stack` はそうなっています）。
 
