@@ -1,4 +1,7 @@
-# メンターAI フロントエンド UI 設計書
+# メンター/コーチ UI 設計書 v2
+
+**確定方針（2026-07-23 壁打ち）**: フロントは Next.js 続行（Vite 移行なし、upstream 同期を維持）。
+コーチ機能は①会話壁打ち ②スライドレビュー ③蔵書傾斜設定 の3タブ構成の `/mentor` ページ。
 
 対象: 既存の mentor グラフ（recall→respond→memorize、`open_notebook/graphs/mentor.py`）を
 フロントエンド（Next.js :3000）から使えるようにする。現状は MCP（`consult_mentor`）のみ。
@@ -132,3 +135,88 @@ i18n: `nav.mentor`。
 - 記憶の構造化（宿題/決定事項のタグ付け、`mentor_memory.topics`）
 - 複数ペルソナ切替（職業別の師匠 — プロファイル選択UIは今回の生成ダイアログと同型）
 - 資料ファイル添付レビュー（アップロード→Source化→相談に自動添付）
+
+
+---
+
+# v2 拡張: コーチ機能（スライドレビュー + 蔵書傾斜）
+
+## 10. ページ構成の変更（3タブ）
+
+```
+/mentor
+├─ 💬 相談        … v1 の会話UI（§1〜§4）
+├─ 📊 スライド     … スライドレビュー（§11）
+└─ ⚖️ 学習の傾斜   … 蔵書の重み付け（§12）
+```
+
+## 11. スライドレビュー
+
+### 入力（両対応）
+| 形式 | 経路 | 得られるもの |
+|---|---|---|
+| PNG/JPG/PDF | アップロード → PDFはページ毎に画像化（pymupdf） → vision | 見た目の全評価（デザイン・トンマナ・グラフ） |
+| pptx | python-pptx で構造解析（テキスト・フォント種数・色パレット・図形/整列座標） | 定量lint（トンマナ検査が正確）+ テキストは論理評価へ |
+
+### レビュー観点（5軸ルーブリック、各0〜5点 + 指摘 + 書き直し例）
+1. **論理整理・論点整理** — メッセージライン（So What?）、ピラミッド構造、スライド間の流れ
+2. **メッセージ×ボディ整合** — タイトルの主張をボディが証明しているか
+3. **表・グラフの整理** — チャート選択の適否、データインク比、軸・単位・強調
+4. **トンマナ** — フォント種数（pptx: >2で警告）、色数、表記揺れ、余白の一貫性
+5. **デザイン指導** — 整列・近接・強調、視線誘導
+
+- **蔵書グラウンディング**: メッセージ内容で蔵書を検索し「『本』では〜」と原則を引用（傾斜§12が効く）
+- **最低品質ゲート**: 各軸のしきい値（既定3.0）未満は「未達」バッジ + 最優先の直し1点を提示
+
+### API
+| エンドポイント | 内容 |
+|---|---|
+| `POST /api/mentor/slide-review`（multipart） | ファイル受領 → 形式判別 → 画像化/構造解析 → vision+LLM レビュー → `{overall, axes:[{name,score,issues[],fix}], citations[], gate:{passed,threshold}}` |
+| `GET /api/mentor/slide-reviews` | 過去レビュー一覧（再訪・改善差分の確認） |
+
+migration 29: `slide_review { filename, axes: object, overall: float, passed: bool, created }`
+
+### UI
+ドロップゾーン → ページサムネイル列 → 選択ページのレビュー結果（軸スコアのレーダー/バー + 指摘リスト + 引用チップ）。レビュー結果から「💬相談で深掘り」ボタンで会話タブへ引き継ぎ。
+
+## 12. 学習の傾斜（蔵書20冊+の重み付け）
+
+### データモデル（migration 28 に同居）
+```
+mentor_source_weight {
+  source: record<source>,          -- 本
+  weight: float (0.0〜2.0, 既定1.0), -- 本単位の手動傾斜
+  chapter_weights: option<object>, -- {"0": 1.5, "3": 0.5, ...} 章単位の微調整
+  updated
+}
+```
+
+### 効き方（recall ノードの再ランク）
+```
+effective(source) = manual_weight(source) × auto_factor(source)
+auto_factor = 1 + α·log(1 + 直近の相談で参照された回数)   # α=0.15, 上限1.5
+score' = similarity × effective(source)
+→ 再ソートして上位N件をプロンプトへ（weight 0 の本は除外）
+```
+- **手動**（本単位+章単位）: UI のスライダーで設定。章単位は章⇔チャンク対応が付くまでは
+  「章インサイト（#46）へのヒット」と「章タイトルを含むチャンク」に適用する近似から開始
+- **自動傾斜**: mentor_memory.sources の出現頻度から算出（実装は関数1つ、追加コストゼロ）。
+  UI に「自動傾斜の現在値」を読み取り専用で表示し、手動と掛け算合成
+
+### UI（⚖️タブ）
+本のリスト（タイトル・チャンク数・手動スライダー0〜2・自動係数バッジ）→ 行を展開すると
+章リスト（audiobook の章タイトルを流用）+ 章スライダー。保存は行単位の PATCH。
+
+| エンドポイント | 内容 |
+|---|---|
+| `GET /api/mentor/weights` | 全本の {source, title, weight, chapter_weights, auto_factor} |
+| `PUT /api/mentor/weights/{source_id}` | 手動傾斜の更新 |
+
+## 13. 実装フェーズ（改訂）
+
+| フェーズ | 内容 | 規模 |
+|---|---|---|
+| C1 | migration 28（mentor_message + mentor_source_weight）+ recall 傾斜（手動×自動）+ テスト | S〜M |
+| C2 | v1 会話UI（§1〜§7のまま）+ ⚖️傾斜タブ + API | M |
+| C3 | スライドレビュー: 画像/PDF 経路（vision）+ migration 29 + 📊タブ | M |
+| C4 | pptx 構造解析 lint（python-pptx）を C3 に合流 | S〜M |
