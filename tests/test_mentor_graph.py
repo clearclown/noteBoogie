@@ -58,11 +58,12 @@ class TestRecallNode:
         )
         monkeypatch.setattr(
             "open_notebook.domain.notebook.vector_search",
-            AsyncMock(return_value=[{"title": "本", "matches": ["x"]}]),
+            AsyncMock(return_value=[{"title": "本", "matches": ["x"], "similarity": 0.8}]),
         )
         out = await mentor.recall_node({"message": "相談"}, {})
         assert out["memories"][0]["question"] == "q"
         assert out["search_results"][0]["title"] == "本"
+        assert out["low_evidence"] is False
 
     @pytest.mark.asyncio
     async def test_survives_db_and_search_failures(self, monkeypatch):
@@ -75,7 +76,56 @@ class TestRecallNode:
             AsyncMock(side_effect=RuntimeError("no embeddings")),
         )
         out = await mentor.recall_node({"message": "相談"}, {})
-        assert out == {"memories": [], "search_results": []}
+        # 検索が全滅した場合も落ちず、根拠なしフラグ付きで続行する
+        assert out["memories"] == [] and out["search_results"] == []
+        assert out["low_evidence"] is True
+
+    @pytest.mark.asyncio
+    async def test_low_similarity_sets_low_evidence_and_drops_hits(self, monkeypatch):
+        """Self-RAG: 下限未満のヒットはプロンプトに流さない（引用捏造の入口を塞ぐ）。"""
+        monkeypatch.setattr(
+            "open_notebook.database.repository.repo_query",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(
+            "open_notebook.domain.notebook.vector_search",
+            AsyncMock(return_value=[{"title": "本", "similarity": 0.25}]),
+        )
+        log = AsyncMock()
+        monkeypatch.setattr(
+            "open_notebook.utils.quality_events.log_quality_event", log
+        )
+        out = await mentor.recall_node({"message": "無関係な相談"}, {})
+        assert out["low_evidence"] is True
+        assert out["search_results"] == []
+        assert log.await_args.kwargs["kind"] == "mentor_low_evidence"
+
+    @pytest.mark.asyncio
+    async def test_floor_is_env_tunable(self, monkeypatch):
+        monkeypatch.setenv("MENTOR_EVIDENCE_FLOOR", "0.2")
+        monkeypatch.setattr(
+            "open_notebook.database.repository.repo_query",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(
+            "open_notebook.domain.notebook.vector_search",
+            AsyncMock(return_value=[{"title": "本", "similarity": 0.25}]),
+        )
+        out = await mentor.recall_node({"message": "相談"}, {})
+        assert out["low_evidence"] is False
+        assert out["search_results"][0]["title"] == "本"
+
+    def test_low_evidence_prompt_forbids_fabricated_citations(self):
+        prompt = mentor.build_mentor_prompt(
+            {"message": "相談", "memories": [], "search_results": [], "low_evidence": True}
+        )
+        assert "蔵書に直接の記述はありませんが" in prompt
+        assert "捏造しない" in prompt
+        # 通常時はこのセクションが入らない
+        normal = mentor.build_mentor_prompt(
+            {"message": "相談", "memories": [], "search_results": []}
+        )
+        assert "蔵書に直接の記述はありませんが" not in normal
 
 
 class TestRespondNode:

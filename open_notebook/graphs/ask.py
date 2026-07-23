@@ -14,7 +14,30 @@ from open_notebook.domain.notebook import vector_search
 from open_notebook.exceptions import OpenNotebookError
 from open_notebook.utils import clean_thinking_content
 from open_notebook.utils.error_classifier import classify_error
+from open_notebook.utils.quality_events import log_quality_event
 from open_notebook.utils.text_utils import extract_text_content
+
+# --- Self-RAG refusal (Book Navigator, ADVANCED_ROADMAP §4-2) ---------------
+# 検索スコアによる決定的な「答えられない」判定。プロンプト頼みにせず、
+# 類似度の下限を割った検索は生成LLMを呼ばずに根拠不足と申告する。
+REFUSAL_PREFIX = "（根拠不足）"
+NO_EVIDENCE_ANSWER = (
+    "蔵書に十分な根拠が見つかりませんでした。"
+    "別の聞き方にするか、関連する本を取り込んでから再度お試しください。"
+)
+
+
+def ask_evidence_floor() -> float:
+    import os
+
+    try:
+        return float(os.getenv("ASK_EVIDENCE_FLOOR", "0.4"))
+    except ValueError:
+        return 0.4
+
+
+def top_similarity(results: list) -> float:
+    return max((float(r.get("similarity") or 0.0) for r in results), default=0.0)
 
 
 class SubGraphState(TypedDict):
@@ -104,8 +127,23 @@ async def provide_answer(state: SubGraphState, config: RunnableConfig) -> dict:
         #     results = text_search(state["term"], 10, True, True)
         # else:
         results = await vector_search(state["term"], 10, True, True)
-        if len(results) == 0:
-            return {"answers": []}
+        floor = ask_evidence_floor()
+        top = top_similarity(results)
+        if len(results) == 0 or top < floor:
+            # 決定的分岐: 根拠が薄い検索は回答LLMを呼ばない（捏造の入口を塞ぐ）
+            await log_quality_event(
+                kind="ask_refusal",
+                name=state["term"],
+                score=top,
+                verdict="refused",
+                details={"floor": floor, "hits": len(results)},
+            )
+            return {
+                "answers": [
+                    f"{REFUSAL_PREFIX}検索語「{state['term']}」では蔵書に"
+                    f"十分な根拠が見つかりませんでした（最大類似度 {top:.2f}）。"
+                ]
+            }
         payload["results"] = results
         ids = [r["id"] for r in results]
         payload["ids"] = ids
@@ -128,6 +166,10 @@ async def provide_answer(state: SubGraphState, config: RunnableConfig) -> dict:
 
 async def write_final_answer(state: ThreadState, config: RunnableConfig) -> dict:
     try:
+        answers = state.get("answers") or []
+        # 全検索が根拠不足なら、統合LLMも呼ばず定型文で正直に断る（Self-RAG）
+        if answers and all(str(a).startswith(REFUSAL_PREFIX) for a in answers):
+            return {"final_answer": NO_EVIDENCE_ANSWER}
         system_prompt = Prompter(prompt_template="ask/final_answer").render(data=state)  # type: ignore[arg-type]
         model = await provision_langchain_model(
             system_prompt,
