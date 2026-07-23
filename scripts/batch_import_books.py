@@ -158,15 +158,21 @@ async def convert_pdf(pdf: Path, out_dir: Path, sem: asyncio.Semaphore) -> bool:
             log(f"変換スキップ（既存）: {pdf.stem}")
             return True
         log(f"変換開始: {pdf.stem}")
-        proc = await asyncio.create_subprocess_exec(
-            str(CONVERTER), "markdown", str(pdf.resolve()), "-o", str(out_dir.resolve()),
-            "--generate-metadata", "--gpu",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            # YomiToku venv (ai_bridge/ai_venv) はコンバータの CWD 相対で発見される。
-            # CWD を合わせないと無OCRフォールバックで全ページ画像の md が出る（実測）
-            cwd=str(CONVERTER.parent.parent.parent),
-        )
-        out, _ = await proc.communicate()
+        try:
+            binary = CONVERTER.resolve()
+            proc = await asyncio.create_subprocess_exec(
+                str(binary), "markdown", str(pdf.resolve()),
+                "-o", str(out_dir.resolve()),
+                "--generate-metadata", "--gpu",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                # YomiToku venv (ai_bridge/ai_venv) はコンバータの CWD 相対で
+                # 発見される。CWD を合わせないと無OCRフォールバックになる（実測）
+                cwd=str(binary.parent.parent.parent),
+            )
+            out, _ = await proc.communicate()
+        except Exception as e:  # noqa: BLE001 - 1冊の失敗で全体を止めない
+            log(f"変換失敗: {pdf.stem}: {e}")
+            return False
         if proc.returncode != 0:
             log(f"変換失敗: {pdf.stem}: {(out or b'')[-500:].decode(errors='replace')}")
             return False

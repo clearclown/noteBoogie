@@ -74,6 +74,7 @@ async def run_converter(pdf: Path, out_dir: Path) -> None:
             "(or set SUPERBOOK_DIR). Note: conversion needs the host (MPS)."
         )
     out_dir.mkdir(parents=True, exist_ok=True)
+    binary = binary.resolve()  # cwd 変更後も実行ファイルを見失わないよう絶対化
     proc = await asyncio.create_subprocess_exec(
         str(binary),
         "markdown",
