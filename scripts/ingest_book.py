@@ -39,6 +39,34 @@ CAPTION_PROMPT = (
     "前置きなしで説明文のみを返してください。"
 )
 
+# 図内テキストがこの文字数以上なら「テキスト主体の図」とみなし、画像を送らず
+# テキストだけで要約する（vision の画像トークン費 ~1.6k tok/枚 を節約）。
+TEXT_ONLY_CAPTION_THRESHOLD = 120
+
+TEXT_CAPTION_PROMPT = (
+    "以下は書籍の図の中に書かれていたテキストです。耳だけで聴く読者のために、"
+    "この図が何を示しているかを日本語で2〜3文で説明してください。"
+    "前置きなしで説明文のみを返してください。\n\n--- 図内テキスト ---\n"
+)
+
+
+def caption_from_text(client, model: str, figure_text: str) -> "str | None":
+    """テキスト主体の図を、画像を送らずにキャプション化する（低コスト経路）。"""
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=300,
+            messages=[{"role": "user", "content": TEXT_CAPTION_PROMPT + figure_text}],
+        )
+        if response.stop_reason == "refusal":
+            return None
+        return next(
+            (b.text.strip() for b in response.content if b.type == "text"), None
+        )
+    except Exception as e:  # noqa: BLE001 - per-figure best effort
+        logger.warning(f"text caption failed: {e}")
+        return None
+
 
 def is_blank_image(image_path: Path, stddev_threshold: float = 6.0) -> bool:
     """True for near-uniform images (blank scan pages, separator strips).
@@ -58,12 +86,21 @@ def is_blank_image(image_path: Path, stddev_threshold: float = 6.0) -> bool:
         return False
 
 
-def caption_figure(client, model: str, image_path: Path) -> "str | None":
-    """Caption one figure image with Claude vision. Returns None on failure."""
+def caption_figure(
+    client, model: str, image_path: Path, figure_text: "str | None" = None
+) -> "str | None":
+    """Caption one figure image with Claude vision. Returns None on failure.
+
+    `figure_text` (YomiToku's in-figure OCR) is appended as context so the
+    model doesn't have to re-read text from pixels.
+    """
     try:
         data = base64.standard_b64encode(image_path.read_bytes()).decode()
         suffix = image_path.suffix.lower().lstrip(".")
         media_type = f"image/{'jpeg' if suffix in ('jpg', 'jpeg') else suffix}"
+        prompt = CAPTION_PROMPT
+        if figure_text:
+            prompt += f"\n\n参考: 図内から読み取れたテキスト:\n{figure_text[:500]}"
         response = client.messages.create(
             model=model,
             max_tokens=300,
@@ -79,7 +116,7 @@ def caption_figure(client, model: str, image_path: Path) -> "str | None":
                                 "data": data,
                             },
                         },
-                        {"type": "text", "text": CAPTION_PROMPT},
+                        {"type": "text", "text": prompt},
                     ],
                 }
             ],
@@ -159,7 +196,14 @@ async def ingest(
             if is_blank_image(img):
                 logger.info(f"  [{i}/{len(to_caption)}] {fig['path']}: skipped (blank)")
                 continue
-            cap = caption_figure(client, caption_model, img)
+            figure_text = (fig.get("text") or "").strip()
+            if len(figure_text) >= TEXT_ONLY_CAPTION_THRESHOLD:
+                # Text-dominant figure: no need to pay image tokens.
+                cap = caption_from_text(client, caption_model, figure_text)
+            else:
+                cap = caption_figure(
+                    client, caption_model, img, figure_text=figure_text or None
+                )
             figure_captions[fig["path"]] = cap
             logger.info(f"  [{i}/{len(to_caption)}] {fig['path']}: "
                         f"{(cap or 'no caption')[:60]}")

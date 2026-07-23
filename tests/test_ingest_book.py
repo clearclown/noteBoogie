@@ -254,7 +254,7 @@ async def test_ingest_captions_only_figure_and_full_page_kinds(
 
     captioned = []
 
-    def fake_caption(client, model, image_path):
+    def fake_caption(client, model, image_path, figure_text=None):
         captioned.append(image_path.name)
         return "図の説明"
 
@@ -301,3 +301,77 @@ def test_unreadable_image_is_not_treated_as_blank(tmp_path):
     broken = tmp_path / "broken.png"
     broken.write_bytes(b"not an image")
     assert is_blank_image(broken) is False
+
+
+# ---------------------------------------------------------------------------
+# Figure-text reuse (vision-cost reduction via YomiToku in-figure OCR)
+# ---------------------------------------------------------------------------
+
+
+def test_text_dominant_figure_skips_vision(tmp_path, wired, monkeypatch):
+    from scripts.ingest_book import TEXT_ONLY_CAPTION_THRESHOLD
+
+    long_text = "図中の説明テキスト。" * 20  # >= threshold
+    assert len(long_text) >= TEXT_ONLY_CAPTION_THRESHOLD
+    figures = [
+        {"path": "images/page_002_fig_001.png", "page": 2, "kind": "figure", "text": long_text},
+        {"path": "images/page_003_fig_001.png", "page": 3, "kind": "figure", "text": "短い"},
+    ]
+    dirp = _write_book_dir(tmp_path, figures=figures)
+    (dirp / "images/page_002_fig_001.png").write_bytes(b"x")
+    (dirp / "images/page_003_fig_001.png").write_bytes(b"x")
+
+    vision_calls, text_calls = [], []
+    monkeypatch.setattr(
+        wired.mod, "is_blank_image", lambda *a, **k: False
+    )
+    monkeypatch.setattr(
+        wired.mod,
+        "caption_figure",
+        lambda client, model, img, figure_text=None: vision_calls.append(
+            (img.name, figure_text)
+        )
+        or "vision説明",
+    )
+    monkeypatch.setattr(
+        wired.mod,
+        "caption_from_text",
+        lambda client, model, text: text_calls.append(text) or "テキスト説明",
+    )
+    monkeypatch.setattr("anthropic.Anthropic", MagicMock(), raising=False)
+
+    import asyncio
+
+    asyncio.run(
+        wired.mod.ingest(dirp, None, "本", captions=True, caption_model="m")
+    )
+
+    # Long in-figure text -> text-only path (no image tokens); short text ->
+    # vision WITH the text passed as a hint.
+    assert text_calls == [long_text]
+    assert vision_calls == [("page_003_fig_001.png", "短い")]
+
+
+def test_caption_from_text_handles_refusal_and_success():
+    from scripts.ingest_book import caption_from_text
+
+    ok = _fake_client(response=_response())
+    assert caption_from_text(ok, "m", "図内の文字") == "この図は矢印を示す。"
+    # The prompt embeds the figure text, no image block is sent.
+    payload = ok.messages.create.call_args.kwargs
+    assert "図内の文字" in payload["messages"][0]["content"]
+
+    refusal = _fake_client(response=_response(stop_reason="refusal"))
+    assert caption_from_text(refusal, "m", "x") is None
+
+
+def test_vision_prompt_includes_figure_text_hint(tmp_path):
+    from scripts.ingest_book import caption_figure
+
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"x")
+    client = _fake_client(response=_response())
+    caption_figure(client, "m", img, figure_text="売上推移 2020-2024")
+    payload = client.messages.create.call_args.kwargs
+    text_block = payload["messages"][0]["content"][1]["text"]
+    assert "売上推移 2020-2024" in text_block
