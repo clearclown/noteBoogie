@@ -48,7 +48,7 @@ function WeightSlider({
             setLocal(null)
           }
         }}
-        className="h-1.5 w-36 cursor-pointer accent-primary"
+        className="h-1.5 w-24 cursor-pointer accent-primary sm:w-36"
       />
       <span
         className={cn(
@@ -89,7 +89,7 @@ function WeightRow({ entry }: { entry: MentorWeightEntry }) {
 
   return (
     <li className="rounded-lg border" data-testid="mentor-weight-row">
-      <div className="flex items-center gap-3 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
         <Button
           variant="ghost"
           size="sm"

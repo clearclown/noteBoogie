@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/hooks/use-auth'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
+import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { useCreateDialogs } from '@/lib/hooks/use-create-dialogs'
 import {
   Tooltip,
@@ -83,7 +84,10 @@ export function AppSidebar() {
   const navigation = getNavigation(t)
   const pathname = usePathname()
   const { logout } = useAuth()
-  const { isCollapsed, toggleCollapse } = useSidebarStore()
+  const { isCollapsed: storedCollapsed, toggleCollapse } = useSidebarStore()
+  // スマホ幅では常にアイコンレール（展開すると本文が数十pxしか残らないため）
+  const isNarrow = useMediaQuery('(max-width: 767px)')
+  const isCollapsed = isNarrow || storedCollapsed
   const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
 
   const [createMenuOpen, setCreateMenuOpen] = useState(false)

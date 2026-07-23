@@ -99,7 +99,7 @@ function ReviewResult({
         </p>
       )}
 
-      <div className="flex items-start gap-4">
+      <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
         <AxisRadar
           axes={review.axes.map((axis) => ({
             key: axis.key,
