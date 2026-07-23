@@ -1,11 +1,23 @@
 //! Markdown chapter splitting for Book Navigator audiobooks.
 //!
-//! Splits a Markdown document into chapters on `#`/`##` headings, keeping each
-//! chapter's body whole (no token-based secondary chunking — that would fragment
-//! a chapter). If the source has no `#`/`##` heading, the whole text becomes a
-//! single chapter titled after the provided fallback (the source title).
+//! Splits a Markdown document into chapters, keeping each chapter's body whole
+//! (no token-based secondary chunking — that would fragment a chapter).
+//!
+//! Guardrails for OCR'd books (SuperBook output):
+//! - When the document has 2+ H1 headings, split on H1 only — H2s are section
+//!   headings within a chapter. Otherwise fall back to H1+H2.
+//! - Consecutive chapters with the same title are merged (running headers make
+//!   OCR re-emit the chapter title on every page).
+//! - Chapters whose body is under [`MIN_CHAPTER_BODY_CHARS`] are merged into
+//!   the next chapter (TOC pages and front-matter fragments). Without this the
+//!   LLM receives a near-empty chapter and fabricates a plausible monologue.
+//! - If the source has no heading at all, the whole text becomes a single
+//!   chapter titled after the provided fallback (the source title).
 
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+
+/// Minimum body size (chars, heading line excluded) for a standalone chapter.
+const MIN_CHAPTER_BODY_CHARS: usize = 200;
 
 /// One parsed chapter: a title and its body text (including the heading line).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,17 +26,12 @@ pub struct Chapter {
     pub body: String,
 }
 
-/// Split Markdown into chapters on H1/H2 headings.
-///
-/// - Text before the first heading is attached to the first chapter (or becomes
-///   the sole chapter if there are no headings).
-/// - `fallback_title` is used when the document has no H1/H2 heading.
-pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter> {
-    // Byte offsets where each chapter (H1/H2 heading) starts.
-    let mut boundaries: Vec<(usize, String)> = Vec::new();
+/// Collect (byte offset, title, level) of every H1/H2 heading.
+fn collect_headings(markdown: &str) -> Vec<(usize, String, HeadingLevel)> {
+    let mut headings: Vec<(usize, String, HeadingLevel)> = Vec::new();
     let parser = Parser::new(markdown).into_offset_iter();
 
-    let mut capturing_title: Option<usize> = None; // start offset of the heading being read
+    let mut capturing: Option<(usize, HeadingLevel)> = None;
     let mut current_title = String::new();
 
     for (event, range) in parser {
@@ -32,23 +39,51 @@ pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter>
             Event::Start(Tag::Heading { level, .. })
                 if level == HeadingLevel::H1 || level == HeadingLevel::H2 =>
             {
-                capturing_title = Some(range.start);
+                capturing = Some((range.start, level));
                 current_title.clear();
             }
-            Event::Text(text) | Event::Code(text) if capturing_title.is_some() => {
+            Event::Text(text) | Event::Code(text) if capturing.is_some() => {
                 current_title.push_str(&text);
             }
             Event::End(TagEnd::Heading(level))
                 if (level == HeadingLevel::H1 || level == HeadingLevel::H2)
-                    && capturing_title.is_some() =>
+                    && capturing.is_some() =>
             {
-                let start = capturing_title.take().unwrap();
-                let title = current_title.trim().to_string();
-                boundaries.push((start, title));
+                let (start, _) = capturing.take().unwrap();
+                headings.push((start, current_title.trim().to_string(), level));
             }
             _ => {}
         }
     }
+    headings
+}
+
+/// Chars in the body once the leading heading line is excluded.
+fn body_content_chars(body: &str) -> usize {
+    let rest = match body.strip_prefix('#') {
+        Some(_) => body.split_once('\n').map(|(_, r)| r).unwrap_or(""),
+        None => body,
+    };
+    rest.chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// Split Markdown into chapters (see module docs for the guardrails).
+///
+/// - Text before the first heading becomes its own chapter when non-trivial.
+/// - `fallback_title` is used when the document has no H1/H2 heading.
+pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter> {
+    let all = collect_headings(markdown);
+
+    // With 2+ H1s the H1s are the chapters; H2s are sections inside them.
+    let h1_count = all
+        .iter()
+        .filter(|(_, _, l)| *l == HeadingLevel::H1)
+        .count();
+    let boundaries: Vec<(usize, String)> = all
+        .into_iter()
+        .filter(|(_, _, l)| h1_count < 2 || *l == HeadingLevel::H1)
+        .map(|(s, t, _)| (s, t))
+        .collect();
 
     // No H1/H2 headings -> single chapter with the whole text.
     if boundaries.is_empty() {
@@ -86,22 +121,99 @@ pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter>
         chapters.push(Chapter { title, body });
     }
 
-    chapters
+    // Merge consecutive same-title chapters (OCR running headers).
+    let mut merged: Vec<Chapter> = Vec::with_capacity(chapters.len());
+    for ch in chapters {
+        match merged.last_mut() {
+            Some(prev) if prev.title == ch.title => {
+                prev.body.push_str("\n\n");
+                prev.body.push_str(&ch.body);
+            }
+            _ => merged.push(ch),
+        }
+    }
+
+    // Fold tiny chapters (TOC lines, front-matter fragments) into the NEXT
+    // chapter so the LLM never receives a near-empty chapter to embellish.
+    // The last chapter, if tiny, folds backwards instead.
+    let mut folded: Vec<Chapter> = Vec::with_capacity(merged.len());
+    let mut pending_prefix = String::new();
+    let mut pending_title: Option<String> = None;
+    for ch in merged {
+        if body_content_chars(&ch.body) < MIN_CHAPTER_BODY_CHARS {
+            pending_title.get_or_insert(ch.title);
+            pending_prefix.push_str(&ch.body);
+            pending_prefix.push_str("\n\n");
+            continue;
+        }
+        pending_title = None;
+        let body = if pending_prefix.is_empty() {
+            ch.body
+        } else {
+            format!("{}{}", std::mem::take(&mut pending_prefix), ch.body)
+        };
+        folded.push(Chapter {
+            title: ch.title,
+            body,
+        });
+    }
+    if !pending_prefix.is_empty() {
+        match folded.last_mut() {
+            Some(last) => {
+                last.body.push_str("\n\n");
+                last.body.push_str(pending_prefix.trim_end());
+            }
+            // Everything was tiny — better one thin chapter than none.
+            None => folded.push(Chapter {
+                title: pending_title
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| fallback_title.trim().to_string()),
+                body: pending_prefix.trim_end().to_string(),
+            }),
+        }
+    }
+
+    folded
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A chapter-sized body (clears MIN_CHAPTER_BODY_CHARS) with a marker.
+    fn body(marker: &str) -> String {
+        format!("{marker} {}", "本文。".repeat(100))
+    }
+
     #[test]
-    fn splits_on_h1_and_h2() {
-        let md = "# Chapter One\nIntro text.\n\n## Chapter Two\nMore text.";
-        let chapters = split_into_chapters(md, "Fallback");
+    fn splits_on_h1_and_h2_when_single_h1() {
+        let md = format!(
+            "# Chapter One\n{}\n\n## Chapter Two\n{}",
+            body("Intro text."),
+            body("More text.")
+        );
+        let chapters = split_into_chapters(&md, "Fallback");
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].title, "Chapter One");
         assert!(chapters[0].body.contains("Intro text."));
         assert_eq!(chapters[1].title, "Chapter Two");
         assert!(chapters[1].body.contains("More text."));
+    }
+
+    #[test]
+    fn multiple_h1_split_on_h1_only() {
+        // With 2+ H1s the H2s are sections, not chapters.
+        let md = format!(
+            "# 第1章 全体像\n{}\n\n## 節タイトル\n{}\n\n# 第2章 思考\n{}",
+            body("a"),
+            body("b"),
+            body("c")
+        );
+        let chapters = split_into_chapters(&md, "本");
+        assert_eq!(chapters.len(), 2);
+        assert_eq!(chapters[0].title, "第1章 全体像");
+        assert!(chapters[0].body.contains("節タイトル"));
+        assert_eq!(chapters[1].title, "第2章 思考");
     }
 
     #[test]
@@ -114,23 +226,65 @@ mod tests {
     }
 
     #[test]
-    fn preamble_before_first_heading_becomes_a_chapter() {
-        let md = "Foreword paragraph.\n\n# Real Chapter\nBody.";
-        let chapters = split_into_chapters(md, "Front Matter");
+    fn large_preamble_becomes_its_own_chapter() {
+        let md = format!("{}\n\n# Real Chapter\n{}", body("Foreword."), body("Body."));
+        let chapters = split_into_chapters(&md, "Front Matter");
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].title, "Front Matter");
-        assert!(chapters[0].body.contains("Foreword"));
+        assert!(chapters[0].body.contains("Foreword."));
         assert_eq!(chapters[1].title, "Real Chapter");
     }
 
     #[test]
-    fn deeper_headings_do_not_split() {
-        // ### should NOT start a new chapter; it stays inside Chapter A's body.
+    fn tiny_preamble_folds_into_first_chapter() {
+        let md = format!("Foreword paragraph.\n\n# Real Chapter\n{}", body("Body."));
+        let chapters = split_into_chapters(&md, "Front Matter");
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].title, "Real Chapter");
+        assert!(chapters[0].body.contains("Foreword paragraph."));
+        assert!(chapters[0].body.contains("Body."));
+    }
+
+    #[test]
+    fn running_header_duplicates_merge() {
+        // OCR re-emits the chapter title on every page (running headers).
+        let md = format!(
+            "# はじめに\n{}\n\n# はじめに\n{}\n\n# 第1章 入門\n{}",
+            body("p1"),
+            body("p2"),
+            body("p3")
+        );
+        let chapters = split_into_chapters(&md, "本");
+        assert_eq!(chapters.len(), 2);
+        assert_eq!(chapters[0].title, "はじめに");
+        assert!(chapters[0].body.contains("p1"));
+        assert!(chapters[0].body.contains("p2"));
+        assert_eq!(chapters[1].title, "第1章 入門");
+    }
+
+    #[test]
+    fn toc_line_chapters_fold_forward() {
+        // A table-of-contents page emits one tiny "chapter" per listed title;
+        // they must not reach the LLM as standalone near-empty chapters.
+        let md = format!(
+            "# 第1章 全体像\n\n# 第2章 思考\n\n# 第1章 全体像\n{}\n\n# 第2章 思考\n{}",
+            body("real1"),
+            body("real2")
+        );
+        let chapters = split_into_chapters(&md, "本");
+        assert_eq!(chapters.len(), 2);
+        assert_eq!(chapters[0].title, "第1章 全体像");
+        assert!(chapters[0].body.contains("real1"));
+        assert_eq!(chapters[1].title, "第2章 思考");
+        assert!(chapters[1].body.contains("real2"));
+    }
+
+    #[test]
+    fn all_tiny_collapses_to_single_titled_chapter() {
         let md = "# Chapter A\nText.\n\n### Subsection\nNested text.";
         let chapters = split_into_chapters(md, "Fallback");
         assert_eq!(chapters.len(), 1);
         assert_eq!(chapters[0].title, "Chapter A");
-        assert!(chapters[0].body.contains("Subsection"));
         assert!(chapters[0].body.contains("Nested text."));
     }
 
@@ -144,8 +298,8 @@ mod tests {
 
     #[test]
     fn handles_crlf_line_endings() {
-        let md = "# Ch A\r\nbody a\r\n\r\n# Ch B\r\nbody b";
-        let chapters = split_into_chapters(md, "Fallback");
+        let md = format!("# Ch A\r\n{}\r\n\r\n# Ch B\r\n{}", body("a"), body("b"));
+        let chapters = split_into_chapters(&md, "Fallback");
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].title, "Ch A");
         assert_eq!(chapters[1].title, "Ch B");
@@ -153,8 +307,8 @@ mod tests {
 
     #[test]
     fn heading_title_strips_inline_markup() {
-        let md = "# **Bold** and `code` title\nbody";
-        let chapters = split_into_chapters(md, "Fallback");
+        let md = format!("# **Bold** and `code` title\n{}", body("b"));
+        let chapters = split_into_chapters(&md, "Fallback");
         assert_eq!(chapters.len(), 1);
         // Inline emphasis/code markers are not part of the extracted title text.
         assert_eq!(chapters[0].title, "Bold and code title");
@@ -162,8 +316,13 @@ mod tests {
 
     #[test]
     fn multiple_h2_each_become_chapters() {
-        let md = "## One\na\n\n## Two\nb\n\n## Three\nc";
-        let chapters = split_into_chapters(md, "Fallback");
+        let md = format!(
+            "## One\n{}\n\n## Two\n{}\n\n## Three\n{}",
+            body("a"),
+            body("b"),
+            body("c")
+        );
+        let chapters = split_into_chapters(&md, "Fallback");
         assert_eq!(chapters.len(), 3);
         assert_eq!(
             chapters.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(),
@@ -173,8 +332,12 @@ mod tests {
 
     #[test]
     fn japanese_headings_split_and_keep_body() {
-        let md = "# 第一章 はじめに\n内容A。\n\n# 第二章 戦略\n内容B。";
-        let chapters = split_into_chapters(md, "本");
+        let md = format!(
+            "# 第一章 はじめに\n内容A。{}\n\n# 第二章 戦略\n内容B。{}",
+            body(""),
+            body("")
+        );
+        let chapters = split_into_chapters(&md, "本");
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].title, "第一章 はじめに");
         assert!(chapters[0].body.contains("内容A。"));

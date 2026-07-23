@@ -108,8 +108,11 @@ async fn db_backed_handler_flows() {
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
 
     // --- 201: generate from inline markdown with two H1 chapters ---
-    let body = r##"{"audiobook_name":"Roundtrip Book","content":"# 第一章 序\nA\n\n# 第二章 本論\nB"}"##;
-    let resp = router().handle(post_json("/audiobooks/generate", body)).await.unwrap();
+    // Chapter bodies must clear the tiny-chapter fold threshold (200 chars).
+    let filler = "本文。".repeat(100);
+    let content = format!("# 第一章 序\nA {filler}\n\n# 第二章 本論\nB {filler}");
+    let body = serde_json::json!({"audiobook_name": "Roundtrip Book", "content": content}).to_string();
+    let resp = router().handle(post_json("/audiobooks/generate", &body)).await.unwrap();
     assert_eq!(resp.status, StatusCode::CREATED);
     let created = json_body(&resp);
     assert_eq!(created["chapter_count"], 2);
