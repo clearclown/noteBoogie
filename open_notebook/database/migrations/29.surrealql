@@ -1,0 +1,16 @@
+-- Migration 29: slide_review (Book Navigator mentor coach, MENTOR_UI_DESIGN.md §11).
+-- Stores one review per uploaded deck: 5-axis rubric scores, issues, library
+-- citations, and the minimum-quality gate verdict. `axes` is FLEXIBLE because
+-- issue lists / fix suggestions are LLM-shaped and evolve with the prompt.
+
+DEFINE TABLE IF NOT EXISTS slide_review SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS created ON slide_review DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS filename ON slide_review TYPE string;
+DEFINE FIELD IF NOT EXISTS kind ON slide_review TYPE string ASSERT $value IN ["image", "pdf", "pptx"];
+DEFINE FIELD IF NOT EXISTS page_count ON slide_review TYPE int DEFAULT 1;
+DEFINE FIELD IF NOT EXISTS overall ON slide_review TYPE float;
+DEFINE FIELD IF NOT EXISTS passed ON slide_review TYPE bool;
+DEFINE FIELD IF NOT EXISTS axes ON slide_review FLEXIBLE TYPE array;
+DEFINE FIELD IF NOT EXISTS summary ON slide_review TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS citations ON slide_review FLEXIBLE TYPE option<array>;
+DEFINE FIELD IF NOT EXISTS stored_path ON slide_review TYPE option<string>;

@@ -46,6 +46,7 @@ dependencies = [
     "numpy>=2.4.1",
     "pycountry>=26.2.16",
     "babel>=2.18.0",
+    "pypdfium2>=5.11.0",
 ]
 
 [tool.setuptools]

@@ -2,7 +2,7 @@
 
 from typing import List
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from api.mentor_service import (
@@ -14,6 +14,7 @@ from api.mentor_service import (
     MentorWeightUpdateRequest,
     mentor_service,
 )
+from api.slide_review_service import SlideReviewResponse, slide_review_service
 
 router = APIRouter()
 
@@ -60,3 +61,16 @@ async def get_mentor_weights():
 async def update_mentor_weight(source_id: str, request: MentorWeightUpdateRequest):
     """本単位の手動傾斜（0.0〜2.0）と章単位の微調整を保存する。"""
     return await mentor_service.update_weight(source_id, request)
+
+
+@router.post("/mentor/slide-review", response_model=SlideReviewResponse)
+async def review_slides(file: UploadFile = File(...)):
+    """スライド（png/jpg/pdf）を5軸ルーブリックでレビューし、品質ゲートを判定する。"""
+    data = await file.read()
+    return await slide_review_service.review(file.filename or "upload", data)
+
+
+@router.get("/mentor/slide-reviews", response_model=List[SlideReviewResponse])
+async def list_slide_reviews(limit: int = Query(default=20, ge=1, le=100)):
+    """過去のスライドレビュー一覧（改善差分の確認用）。"""
+    return await slide_review_service.list_reviews(limit)
