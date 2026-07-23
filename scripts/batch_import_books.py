@@ -271,6 +271,52 @@ async def set_mentor_persona() -> None:
 # ---------------------------------------------------------------------------
 
 
+async def recover_missing() -> None:
+    """朝の復旧モード: 埋め込み欠落の再投入 + オーディオブック未生成分の一括生成 +
+    失敗章のリトライ。Google の支出上限を引き上げた後に実行する。"""
+    import httpx
+
+    from open_notebook.database.repository import repo_query
+
+    await wait_for_stack()
+    sources = await repo_query("SELECT type::string(id) AS id, title FROM source")
+    gen_sem = asyncio.Semaphore(GENERATE_PARALLEL)
+    tasks = []
+    for s in sources:
+        sid, title = s["id"], s["title"]
+        emb = await repo_query(
+            "SELECT count() AS n FROM source_embedding WHERE type::string(source) = $s GROUP ALL",
+            {"s": sid},
+        )
+        if not emb or not emb[0]["n"]:
+            log(f"埋め込み再投入: {title}")
+            from open_notebook.domain.notebook import Source
+
+            src = await Source.get(sid)
+            if src:
+                await src.vectorize()
+        abs_ = await repo_query(
+            "SELECT type::string(id) AS id FROM audiobook WHERE source_id = $s", {"s": sid}
+        )
+        if not abs_:
+            tasks.append(generate_audiobook(title, sid, gen_sem))
+    # 既存オーディオブックの失敗章をリトライ
+    failed = await repo_query(
+        "SELECT type::string(id) AS id, name FROM episode WHERE generation_error != NONE"
+    )
+    async with httpx.AsyncClient(timeout=30) as client:
+        for ep in failed:
+            resp = await client.post(
+                f"{GATEWAY_URL}/chapters/{ep['id'].replace(':', '%3A')}/retry"
+            )
+            log(f"章リトライ {ep['name'][:30]}: {resp.status_code}")
+            await asyncio.sleep(5)  # 同時リトライ爆発を避ける
+    if tasks:
+        results = await asyncio.gather(*tasks)
+        log(json.dumps(list(results), ensure_ascii=False)[:1500])
+    log("復旧モード完了")
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--downloads", default=str(Path.home() / "Downloads"))
@@ -278,7 +324,13 @@ async def main() -> None:
     ap.add_argument("--since-hours", type=float, default=12.0,
                     help="この時間以内に更新された zip のみ対象")
     ap.add_argument("--no-audiobooks", action="store_true")
+    ap.add_argument("--generate-missing", action="store_true",
+                    help="復旧モード: 埋め込み欠落の再投入 + 未生成audiobookの生成 + 失敗章リトライ")
     args = ap.parse_args()
+
+    if args.generate_missing:
+        await recover_missing()
+        return
 
     since = time.time() - args.since_hours * 3600
     zips = await asyncio.to_thread(
