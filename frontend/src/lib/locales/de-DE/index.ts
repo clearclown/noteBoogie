@@ -520,6 +520,8 @@ export const deDE = {
     processingQuestion: "Deine Frage wird verarbeitet...",
   },
   podcasts: {
+    audiobookScriptProfile: "Skriptmodell (Profil)",
+    audiobookVoiceProfile: "Stimme (Profil)",
     audiobookRetry: "Erneut versuchen",
     audiobookFailed: "Fehlgeschlagen",
     audiobookGenerate: "Hörbuch erzeugen",

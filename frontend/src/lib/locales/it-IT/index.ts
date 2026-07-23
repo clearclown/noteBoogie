@@ -517,6 +517,8 @@ export const itIT = {
     processingQuestion: "Elaborazione della tua domanda...",
   },
   podcasts: {
+    audiobookScriptProfile: "Modello dello script (profilo)",
+    audiobookVoiceProfile: "Voce (profilo)",
     audiobookRetry: "Riprova",
     audiobookFailed: "Fallito",
     audiobookGenerate: "Genera audiolibro",

@@ -517,6 +517,8 @@ export const frFR = {
     processingQuestion: "Traitement de votre question...",
   },
   podcasts: {
+    audiobookScriptProfile: "Modèle du script (profil)",
+    audiobookVoiceProfile: "Voix (profil)",
     audiobookRetry: "Réessayer",
     audiobookFailed: "Échec",
     audiobookGenerate: "Générer un livre audio",

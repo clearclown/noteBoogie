@@ -517,6 +517,8 @@ export const esES = {
     processingQuestion: "Procesando tu pregunta...",
   },
   podcasts: {
+    audiobookScriptProfile: "Modelo del guion (perfil)",
+    audiobookVoiceProfile: "Voz (perfil)",
     audiobookRetry: "Reintentar",
     audiobookFailed: "Fallido",
     audiobookGenerate: "Generar audiolibro",

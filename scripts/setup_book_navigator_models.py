@@ -112,6 +112,48 @@ async def set_defaults(
     )
 
 
+async def create_presets() -> None:
+    """コスト/品質をユーザーが生成時に選べるよう、プリセットのプロファイル群を作る。
+
+    - book_navigator          … 品質重視（既存。sonnet-5 想定）
+    - book_navigator_budget   … 節約（haiku-4.5。実測で composite 同点・-65%）
+    - book_navigator_mentor       … 標準声（gemini-3.1-flash-tts）
+    - book_navigator_mentor_eco   … 節約声（gemini-3.5-flash-tts、$20→$6/M）
+    生成ダイアログのドロップダウンにそのまま並ぶ。
+    """
+    base = await repo_query(
+        "SELECT default_briefing, num_segments FROM episode_profile WHERE name = 'book_navigator'"
+    )
+    if not base:
+        raise SystemExit("book_navigator プロファイルがありません（migration 24 未適用?）")
+    briefing = base[0].get("default_briefing") or ""
+    num_segments = base[0].get("num_segments") or 3
+
+    haiku_id = await _upsert_model("claude-haiku-4-5", "anthropic", "language")
+    await repo_query(
+        "INSERT INTO episode_profile [{ name: 'book_navigator_budget', "
+        "description: '節約プリセット: 台本を haiku-4.5 で生成（品質はハーネス実測で同点）', "
+        "speaker_config: (SELECT VALUE id FROM ONLY speaker_profile WHERE name = 'book_navigator_mentor' LIMIT 1), "
+        "default_briefing: $br, num_segments: $seg, "
+        "outline_llm: type::thing('model', $hid), transcript_llm: type::thing('model', $hid) }]",
+        {"br": briefing, "seg": num_segments, "hid": haiku_id.split(":", 1)[1]},
+    )
+    print("episode_profile 'book_navigator_budget' (haiku-4.5) を作成")
+
+    eco_tts_id = await _upsert_model(
+        "gemini-3.5-flash-tts", "google", "text_to_speech"
+    )
+    await repo_query(
+        "INSERT INTO speaker_profile [{ name: 'book_navigator_mentor_eco', "
+        "description: '節約プリセット: gemini-3.5-flash-tts（$20→$6/M audio）', "
+        "voice_model: type::thing('model', $tid), "
+        "speakers: [{ name: 'Mentor', voice_id: 'kore', "
+        "backstory: '経験豊富なビジネスメンター。', personality: '落ち着いた語り口。' }] }]",
+        {"tid": eco_tts_id.split(":", 1)[1]},
+    )
+    print("speaker_profile 'book_navigator_mentor_eco' (gemini-3.5-flash-tts) を作成")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", default="openai", help="LLM provider (e.g. openai, anthropic, ollama)")
@@ -129,6 +171,11 @@ if __name__ == "__main__":
     )
     ap.add_argument("--embedding-provider", default="google")
     ap.add_argument("--embedding-model", default="gemini-embedding-001")
+    ap.add_argument(
+        "--create-presets",
+        action="store_true",
+        help="節約プリセット（haiku台本 / 3.5-flash-tts声）のプロファイルを追加作成",
+    )
     args = ap.parse_args()
 
     async def run_all() -> None:
@@ -138,6 +185,8 @@ if __name__ == "__main__":
             args.tts_model,
             args.tts_provider or args.provider,
         )
+        if args.create_presets:
+            await create_presets()
         if args.set_defaults:
             tts_id = None
             if args.tts_model:

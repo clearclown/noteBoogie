@@ -517,6 +517,8 @@ export const plPL = {
     processingQuestion: "Przetwarzanie pytania...",
   },
   podcasts: {
+    audiobookScriptProfile: "Model skryptu (profil)",
+    audiobookVoiceProfile: "Głos (profil)",
     audiobookRetry: "Ponów",
     audiobookFailed: "Niepowodzenie",
     audiobookGenerate: "Wygeneruj audiobook",

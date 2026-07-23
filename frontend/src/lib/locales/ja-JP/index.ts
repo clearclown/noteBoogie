@@ -517,6 +517,8 @@ export const jaJP = {
     processingQuestion: "質問を処理中...",
   },
   podcasts: {
+    audiobookScriptProfile: "台本モデル（プロファイル）",
+    audiobookVoiceProfile: "声（プロファイル）",
     audiobookRetry: "再試行",
     audiobookFailed: "失敗",
     audiobookGenerate: "オーディオブック生成",

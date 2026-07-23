@@ -21,6 +21,21 @@ vi.mock('@/lib/config', () => ({
   getApiUrl: vi.fn(async () => 'http://api:5055'),
 }))
 
+vi.mock('@/lib/hooks/use-podcasts', () => ({
+  useEpisodeProfiles: () => ({
+    episodeProfiles: [
+      { id: 'ep:1', name: 'book_navigator' },
+      { id: 'ep:2', name: 'book_navigator_budget' },
+    ],
+  }),
+  useSpeakerProfiles: () => ({
+    speakerProfiles: [
+      { id: 'sp:1', name: 'book_navigator_mentor' },
+      { id: 'sp:2', name: 'book_navigator_mentor_eco' },
+    ],
+  }),
+}))
+
 vi.mock('@/lib/api/sources', () => ({
   sourcesApi: {
     list: vi.fn(async () => [
@@ -283,20 +298,32 @@ describe('AudiobooksTab detail view', () => {
     fireEvent.click(await screen.findByText('podcasts.audiobookGenerate'))
     await screen.findByText('podcasts.audiobookGenerateTitle')
 
-    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const [sourceSelect, profileSelect, voiceSelect] = screen.getAllByRole(
+      'combobox'
+    ) as HTMLSelectElement[]
     await waitFor(() =>
-      expect(select.querySelectorAll('option').length).toBeGreaterThan(1)
+      expect(sourceSelect.querySelectorAll('option').length).toBeGreaterThan(1)
     )
-    fireEvent.change(select, { target: { value: 'source:s1' } })
+    fireEvent.change(sourceSelect, { target: { value: 'source:s1' } })
     // Name auto-fills from the source title.
     const nameInput = screen.getByRole('textbox') as HTMLInputElement
     expect(nameInput.value).toBe('コンサル頭のつくり方')
+
+    // Cost/quality is the user's choice: pick the budget script + eco voice.
+    fireEvent.change(profileSelect, {
+      target: { value: 'book_navigator_budget' },
+    })
+    fireEvent.change(voiceSelect, {
+      target: { value: 'book_navigator_mentor_eco' },
+    })
 
     fireEvent.click(screen.getByText('podcasts.audiobookGenerateStart'))
     await waitFor(() =>
       expect(audiobooksApi.generate).toHaveBeenCalledWith({
         audiobook_name: 'コンサル頭のつくり方',
         source_id: 'source:s1',
+        episode_profile: 'book_navigator_budget',
+        speaker_profile: 'book_navigator_mentor_eco',
       })
     )
   })

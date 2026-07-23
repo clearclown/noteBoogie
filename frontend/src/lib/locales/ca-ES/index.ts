@@ -517,6 +517,8 @@ export const caES = {
     processingQuestion: "S'està processant la teva pregunta...",
   },
   podcasts: {
+    audiobookScriptProfile: "Model del guió (perfil)",
+    audiobookVoiceProfile: "Veu (perfil)",
     audiobookRetry: "Reintenta",
     audiobookFailed: "Ha fallat",
     audiobookGenerate: "Genera un audiollibre",

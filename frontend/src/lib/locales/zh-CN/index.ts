@@ -517,6 +517,8 @@ export const zhCN = {
     processingQuestion: "正在处理您的问题...",
   },
   podcasts: {
+    audiobookScriptProfile: "脚本模型（配置）",
+    audiobookVoiceProfile: "语音（配置）",
     audiobookRetry: "重试",
     audiobookFailed: "失败",
     audiobookGenerate: "生成有声书",

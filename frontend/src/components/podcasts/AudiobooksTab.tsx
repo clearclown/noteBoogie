@@ -37,6 +37,7 @@ import {
   useGenerateAudiobook,
 } from '@/lib/hooks/use-audiobooks'
 import { sourcesApi } from '@/lib/api/sources'
+import { useEpisodeProfiles, useSpeakerProfiles } from '@/lib/hooks/use-podcasts'
 import { useAudiobookPlayerStore } from '@/lib/stores/audiobook-player-store'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { AudiobookChapter } from '@/lib/types/audiobooks'
@@ -379,18 +380,29 @@ function GenerateAudiobookDialog({
   const generate = useGenerateAudiobook()
   const [sourceId, setSourceId] = useState<string>('')
   const [name, setName] = useState('')
+  const [episodeProfile, setEpisodeProfile] = useState('book_navigator')
+  const [speakerProfile, setSpeakerProfile] = useState('book_navigator_mentor')
   const { data: sources } = useQuery({
     queryKey: ['sources', 'all-for-audiobook'],
     queryFn: () => sourcesApi.list({ limit: 100 }),
     enabled: open,
   })
+  // Model/voice presets = existing episode & speaker profiles (editable in
+  // the Templates tab), so cost/quality is the user's choice per generation.
+  const { episodeProfiles } = useEpisodeProfiles()
+  const { speakerProfiles } = useSpeakerProfiles(episodeProfiles)
 
   const handleSubmit = async () => {
     if (!sourceId || !name.trim()) {
       return
     }
     try {
-      await generate.mutateAsync({ audiobook_name: name.trim(), source_id: sourceId })
+      await generate.mutateAsync({
+        audiobook_name: name.trim(),
+        source_id: sourceId,
+        episode_profile: episodeProfile,
+        speaker_profile: speakerProfile,
+      })
       onOpenChange(false)
     } catch (error) {
       console.error('Failed to start audiobook generation', error)
@@ -434,6 +446,36 @@ function GenerateAudiobookDialog({
               onChange={(event) => setName(event.target.value)}
             />
           </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-medium">
+              {t('podcasts.audiobookScriptProfile')}
+              <select
+                className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={episodeProfile}
+                onChange={(event) => setEpisodeProfile(event.target.value)}
+              >
+                {(episodeProfiles ?? []).map((profile) => (
+                  <option key={profile.id} value={profile.name}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium">
+              {t('podcasts.audiobookVoiceProfile')}
+              <select
+                className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={speakerProfile}
+                onChange={(event) => setSpeakerProfile(event.target.value)}
+              >
+                {(speakerProfiles ?? []).map((profile) => (
+                  <option key={profile.id} value={profile.name}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           {generate.isError ? (
             <p className="text-sm text-destructive">
               {t('podcasts.audiobookGenerateError')}

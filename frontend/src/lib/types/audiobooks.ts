@@ -33,6 +33,10 @@ export interface GenerateAudiobookRequest {
   content?: string
   max_chapters?: number
   briefing_suffix?: string
+  /** Episode profile name (script model preset); gateway default: book_navigator */
+  episode_profile?: string
+  /** Speaker profile name (voice/TTS preset); gateway default: book_navigator_mentor */
+  speaker_profile?: string
 }
 
 export interface GenerateAudiobookResponse {
