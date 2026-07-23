@@ -517,6 +517,7 @@ export const zhTW = {
     processingQuestion: "正在處理您的問題...",
   },
   podcasts: {
+    audiobookRetry: "重試",
     audiobookFailed: "失敗",
     audiobookGenerate: "產生有聲書",
     audiobookGenerateTitle: "產生有聲書",

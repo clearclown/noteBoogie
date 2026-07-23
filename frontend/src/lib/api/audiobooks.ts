@@ -55,6 +55,16 @@ export const audiobooksApi = {
     return (await response.json()) as GenerateAudiobookResponse
   },
 
+  retryChapter: async (chapterId: string) => {
+    const response = await fetch(
+      `${getGatewayUrl()}/chapters/${encodeURIComponent(chapterId)}/retry`,
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }
+    )
+    if (!response.ok) {
+      throw new Error(`Gateway retry failed (${response.status})`)
+    }
+  },
+
   figureImageUrl: (figureId: string) =>
     `${getGatewayUrl()}/figures/${encodeURIComponent(figureId)}/image`,
 }

@@ -12,6 +12,7 @@ vi.mock('@/lib/api/audiobooks', () => ({
     listFigures: vi.fn(),
     delete: vi.fn(),
     generate: vi.fn(),
+    retryChapter: vi.fn(),
     figureImageUrl: (id: string) => `http://gw/figures/${id}/image`,
   },
 }))
@@ -297,6 +298,24 @@ describe('AudiobooksTab detail view', () => {
         audiobook_name: 'コンサル頭のつくり方',
         source_id: 'source:s1',
       })
+    )
+  })
+
+  it('retries a failed chapter from the tracklist', async () => {
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.get).mockResolvedValue({
+      ...DETAIL,
+      chapters: [
+        { ...DETAIL.chapters[1], generation_error: 'outline parse failure' },
+      ],
+    })
+    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
+    vi.mocked(audiobooksApi.retryChapter).mockResolvedValue(undefined)
+    renderTab()
+    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
+    fireEvent.click(await screen.findByText('podcasts.audiobookRetry'))
+    await waitFor(() =>
+      expect(audiobooksApi.retryChapter).toHaveBeenCalledWith('episode:c1')
     )
   })
 

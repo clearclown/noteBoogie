@@ -517,6 +517,7 @@ export const ptBR = {
     processingQuestion: "Processando sua pergunta...",
   },
   podcasts: {
+    audiobookRetry: "Tentar novamente",
     audiobookFailed: "Falhou",
     audiobookGenerate: "Gerar audiolivro",
     audiobookGenerateTitle: "Gerar um audiolivro",

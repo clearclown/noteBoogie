@@ -56,6 +56,7 @@ impl PodcastSidecar for MockSidecar {
 fn router() -> ServerRouter {
     let mut r = ServerRouter::new()
         .endpoint(handlers::get_audiobook)
+        .endpoint(handlers::retry_chapter)
         .endpoint(handlers::generate_audiobook);
     let _ = r.register_all_routes();
     r
@@ -208,4 +209,48 @@ async fn background_generation_persists_results_and_survives_failures() {
         .expect("generation_error persisted for the failed chapter");
     assert!(error.contains("mock generation failure"), "got: {error}");
     assert!(chapters[1]["generation_error"].is_null());
+
+    // --- Retry: fix the content (mock keys failure off "FAILME") and re-run
+    //     just the failed chapter through its stored inputs ---
+    let failed_id = chapters[0]["id"].as_str().unwrap().to_string();
+    let db = db::get().unwrap();
+    db.query("UPDATE episode SET content = $c WHERE type::string(id) = $id RETURN NONE")
+        .bind(("c", format!("回復した本文 {}", "本文。".repeat(100))))
+        .bind(("id", failed_id.clone()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+
+    let resp = router()
+        .handle(post_json(&format!("/chapters/{failed_id}/retry"), "{}"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status, StatusCode::OK);
+    assert_eq!(json_body(&resp)["status"], "processing");
+
+    let detail = wait_for(&id, |d| {
+        d["chapters"]
+            .as_array()
+            .and_then(|cs| cs.first())
+            .map(|c| c["audio_file"].is_string())
+            .unwrap_or(false)
+    })
+    .await;
+    let retried = &detail["chapters"][0];
+    assert!(
+        retried["generation_error"].is_null(),
+        "error cleared after successful retry"
+    );
+    assert!(retried["audio_file"]
+        .as_str()
+        .unwrap()
+        .starts_with("episodes/"));
+
+    // --- Retry of an unknown chapter -> 404 ---
+    let resp = router()
+        .handle(post_json("/chapters/episode:nope/retry", "{}"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status, StatusCode::NOT_FOUND);
 }

@@ -517,6 +517,7 @@ export const bnIN = {
     processingQuestion: "আপনার প্রশ্ন প্রক্রিয়া করা হচ্ছে...",
   },
   podcasts: {
+    audiobookRetry: "আবার চেষ্টা করুন",
     audiobookFailed: "ব্যর্থ",
     audiobookGenerate: "অডিওবুক তৈরি করুন",
     audiobookGenerateTitle: "একটি অডিওবুক তৈরি করুন",

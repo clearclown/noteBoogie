@@ -517,6 +517,7 @@ export const ruRU = {
     processingQuestion: "Обработка вашего вопроса...",
   },
   podcasts: {
+    audiobookRetry: "Повторить",
     audiobookFailed: "Ошибка",
     audiobookGenerate: "Создать аудиокнигу",
     audiobookGenerateTitle: "Создать аудиокнигу",

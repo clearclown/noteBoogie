@@ -517,6 +517,7 @@ export const caES = {
     processingQuestion: "S'està processant la teva pregunta...",
   },
   podcasts: {
+    audiobookRetry: "Reintenta",
     audiobookFailed: "Ha fallat",
     audiobookGenerate: "Genera un audiollibre",
     audiobookGenerateTitle: "Genera un audiollibre",

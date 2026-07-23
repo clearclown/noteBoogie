@@ -176,6 +176,43 @@ pub async fn get_figure_path(db: &Surreal<Any>, figure_full_id: &str) -> DbResul
     Ok(rows.drain(..).next().and_then(|r| r.path))
 }
 
+/// Everything needed to re-run one chapter's generation.
+#[derive(Debug, serde::Deserialize)]
+pub struct ChapterRetryInfo {
+    pub content: Option<String>,
+    pub briefing: Option<String>,
+    pub episode_profile_name: Option<String>,
+    pub speaker_profile_name: Option<String>,
+}
+
+/// Load a chapter episode's stored inputs for a retry (by full episode id).
+pub async fn get_chapter_retry_info(
+    db: &Surreal<Any>,
+    episode_full_id: &str,
+) -> DbResult<Option<ChapterRetryInfo>> {
+    let mut rows: Vec<ChapterRetryInfo> = db
+        .query(
+            "SELECT content, briefing, episode_profile.name AS episode_profile_name, \
+             speaker_profile.name AS speaker_profile_name \
+             FROM episode WHERE type::string(id) = $id AND audiobook != NONE",
+        )
+        .bind(("id", episode_full_id.to_string()))
+        .await?
+        .take(0)?;
+    Ok(rows.drain(..).next())
+}
+
+/// Clear a chapter's failure state before re-running it.
+pub async fn clear_episode_error(db: &Surreal<Any>, episode_full_id: &str) -> DbResult<()> {
+    db.query(
+        "UPDATE episode SET generation_error = NONE WHERE type::string(id) = $id RETURN NONE",
+    )
+    .bind(("id", episode_full_id.to_string()))
+    .await?
+    .check()?;
+    Ok(())
+}
+
 /// Convert a sidecar-produced audio path to the DB storage form: relative to
 /// PODCASTS_FOLDER (e.g. "episodes/<id>/audio/<file>.mp3"), mirroring the
 /// Python side's `to_relative_audio_path` (#1030). The API treats absolute

@@ -35,6 +35,7 @@ async fn main() {
         .endpoint(handlers::get_audiobook)
         .endpoint(handlers::get_audiobook_figures)
         .endpoint(handlers::get_figure_image)
+        .endpoint(handlers::retry_chapter)
         .endpoint(handlers::delete_audiobook)
         .endpoint(handlers::generate_audiobook);
     let errors = router.register_all_routes();

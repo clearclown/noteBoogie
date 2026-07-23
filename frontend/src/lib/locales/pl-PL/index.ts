@@ -517,6 +517,7 @@ export const plPL = {
     processingQuestion: "Przetwarzanie pytania...",
   },
   podcasts: {
+    audiobookRetry: "Ponów",
     audiobookFailed: "Niepowodzenie",
     audiobookGenerate: "Wygeneruj audiobook",
     audiobookGenerateTitle: "Wygeneruj audiobook",

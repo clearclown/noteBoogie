@@ -515,6 +515,7 @@ export const enUS = {
     processingQuestion: "Processing your question...",
   },
   podcasts: {
+    audiobookRetry: "Retry",
     audiobookFailed: "Failed",
     audiobookGenerate: "Generate audiobook",
     audiobookGenerateTitle: "Generate an audiobook",

@@ -159,6 +159,78 @@ pub async fn get_figure_image(Path(id): Path<String>) -> ViewResult<Response> {
     }
 }
 
+/// Re-run one failed (or stuck) chapter's generation using its stored inputs.
+#[post("/chapters/{id}/retry")]
+pub async fn retry_chapter(Path(id): Path<String>) -> ViewResult<Response> {
+    let db = match require_db() {
+        Ok(db) => db,
+        Err(r) => return Ok(r),
+    };
+    let info = match repo::get_chapter_retry_info(db, &id).await {
+        Ok(Some(info)) => info,
+        Ok(None) => {
+            return Response::not_found()
+                .with_json(&json!({"error": "chapter episode not found"}))
+                .map_err(Into::into)
+        }
+        Err(e) => return Ok(server_error(e)),
+    };
+    if let Err(e) = repo::clear_episode_error(db, &id).await {
+        return Ok(server_error(e));
+    }
+
+    let cfg = Config::from_env();
+    let ep_id_part = id.strip_prefix("episode:").unwrap_or(&id).to_string();
+    let request = CreatePodcastRequest {
+        content: info.content.unwrap_or_default(),
+        briefing: info.briefing.unwrap_or_default(),
+        episode_name: ep_id_part.clone(),
+        output_dir: format!(
+            "{}/podcasts/episodes/{}",
+            cfg.data_folder.trim_end_matches('/'),
+            ep_id_part
+        ),
+        speaker_config: info
+            .speaker_profile_name
+            .unwrap_or_else(|| "book_navigator_mentor".into()),
+        episode_profile: info
+            .episode_profile_name
+            .unwrap_or_else(|| "book_navigator".into()),
+    };
+    let sidecar_addr = cfg.sidecar_addr.clone();
+    let episode_full_id = id.clone();
+    tokio::spawn(async move {
+        let Some(db) = db::get() else { return };
+        match sidecar::create_podcast(&sidecar_addr, request).await {
+            Ok(resp) => {
+                if let Err(e) = repo::set_episode_result(
+                    db,
+                    &episode_full_id,
+                    &resp.final_output_file_path,
+                    &resp.transcript_json,
+                    &resp.outline_json,
+                )
+                .await
+                {
+                    eprintln!("failed to save retried chapter {episode_full_id}: {e}");
+                }
+            }
+            Err(e) => {
+                eprintln!("chapter retry failed {episode_full_id}: {e}");
+                if let Err(persist_err) =
+                    repo::set_episode_error(db, &episode_full_id, &e.to_string()).await
+                {
+                    eprintln!("failed to record retry error {episode_full_id}: {persist_err}");
+                }
+            }
+        }
+    });
+
+    Response::ok()
+        .with_json(&json!({"status": "processing", "id": id}))
+        .map_err(Into::into)
+}
+
 #[post("/audiobooks/generate")]
 pub async fn generate_audiobook(
     Json(req): Json<GenerateAudiobookRequest>,

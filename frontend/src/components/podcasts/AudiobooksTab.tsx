@@ -78,6 +78,7 @@ function AudiobookDetailView({
   onBack: () => void
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const { data: detail, isLoading } = useAudiobook(audiobookId)
   const { data: figures } = useAudiobookFigures(audiobookId)
 
@@ -292,13 +293,32 @@ function AudiobookDetailView({
                     <Headphones className="h-4 w-4 shrink-0" />
                   ) : null
                 ) : chapter.generation_error ? (
-                  <Badge
-                    variant="destructive"
-                    className="shrink-0"
-                    title={chapter.generation_error}
-                  >
-                    {t('podcasts.audiobookFailed')}
-                  </Badge>
+                  <span className="flex items-center gap-1 shrink-0">
+                    <Badge variant="destructive" title={chapter.generation_error}>
+                      {t('podcasts.audiobookFailed')}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      aria-label={t('podcasts.audiobookRetry')}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void audiobooksApi
+                          .retryChapter(chapter.id as string)
+                          .then(() =>
+                            queryClient.invalidateQueries({
+                              queryKey: AUDIOBOOK_QUERY_KEYS.audiobook(audiobookId),
+                            })
+                          )
+                          .catch((error) =>
+                            console.error('Failed to retry chapter', error)
+                          )
+                      }}
+                    >
+                      {t('podcasts.audiobookRetry')}
+                    </Button>
+                  </span>
                 ) : (
                   <Badge variant="outline" className="shrink-0">
                     {t('podcasts.audiobookAudioPending')}

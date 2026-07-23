@@ -517,6 +517,7 @@ export const trTR = {
     processingQuestion: "Sorunuz işleniyor...",
   },
   podcasts: {
+    audiobookRetry: "Yeniden dene",
     audiobookFailed: "Başarısız",
     audiobookGenerate: "Sesli kitap oluştur",
     audiobookGenerateTitle: "Sesli kitap oluştur",
