@@ -68,6 +68,60 @@ def build_mentor_prompt(state: MentorState) -> str:
     return "\n".join(parts)
 
 
+# --- 蔵書の傾斜（学習の重み付け） -------------------------------------------
+
+# 自動傾斜: 直近の相談でよく参照された本を緩やかに重くする
+AUTO_WEIGHT_ALPHA = 0.15
+AUTO_WEIGHT_CAP = 1.5
+
+
+def compute_auto_factors(recent_memory_sources: list) -> dict:
+    """直近の mentor_memory.sources から本ごとの自動係数を算出する。
+
+    factor = min(1 + α·ln(1 + 参照回数), 上限)。ユーザー設定（手動傾斜）とは
+    掛け算で合成され、読み取り専用のシグナルとして働く。
+    """
+    import math
+
+    counts: dict = {}
+    for sources in recent_memory_sources:
+        for source_id in sources or []:
+            counts[source_id] = counts.get(source_id, 0) + 1
+    return {
+        source_id: min(1.0 + AUTO_WEIGHT_ALPHA * math.log1p(count), AUTO_WEIGHT_CAP)
+        for source_id, count in counts.items()
+    }
+
+
+def apply_weights(hits: list, manual: dict, auto: dict) -> list:
+    """検索ヒットに 手動×自動 の傾斜を掛けて再ランクする。
+
+    - manual: {source_id: weight 0.0〜2.0}（未設定は1.0）
+    - weight 0.0 の本は除外（「この本からは学ばない」）
+    - similarity を effective 倍して降順に並べ替え
+    """
+    weighted = []
+    for hit in hits:
+        source_id = str(hit.get("parent_id") or hit.get("id") or "")
+        manual_w = manual.get(source_id, 1.0)
+        if manual_w <= 0.0:
+            continue
+        effective = manual_w * auto.get(source_id, 1.0)
+        score = float(hit.get("similarity") or 0.0) * effective
+        weighted.append(({**hit, "weighted_score": round(score, 4)}, score))
+    weighted.sort(key=lambda pair: pair[1], reverse=True)
+    return [hit for hit, _ in weighted]
+
+
+async def load_manual_weights() -> dict:
+    from open_notebook.database.repository import repo_query
+
+    rows = await repo_query(
+        "SELECT type::string(source) AS source_id, weight FROM mentor_source_weight"
+    )
+    return {r["source_id"]: float(r.get("weight", 1.0)) for r in rows}
+
+
 async def recall_node(state: MentorState, config: RunnableConfig) -> dict:
     """過去の記憶と蔵書の関連箇所を集める（失敗しても相談は続行）。"""
     from open_notebook.database.repository import repo_query
@@ -77,16 +131,24 @@ async def recall_node(state: MentorState, config: RunnableConfig) -> dict:
     hits: list = []
     try:
         memories = await repo_query(
-            "SELECT type::string(created) AS created, question, gist "
+            "SELECT type::string(created) AS created, question, gist, sources "
             "FROM mentor_memory ORDER BY created DESC LIMIT $n",
             {"n": MAX_MEMORIES},
         )
     except Exception as e:  # noqa: BLE001 - memory is best-effort
         logger.warning(f"mentor memory recall failed: {e}")
     try:
-        hits = await vector_search(
-            state["message"], MAX_SEARCH_RESULTS, source=True, note=True
+        # 傾斜を効かせるため、上限より広めに取ってから再ランクで絞る
+        raw_hits = await vector_search(
+            state["message"], MAX_SEARCH_RESULTS * 3, source=True, note=True
         )
+        manual: dict = {}
+        try:
+            manual = await load_manual_weights()
+        except Exception as e:  # noqa: BLE001 - weights are best-effort
+            logger.warning(f"mentor weight load failed: {e}")
+        auto = compute_auto_factors([m.get("sources") for m in memories])
+        hits = apply_weights(raw_hits, manual, auto)[:MAX_SEARCH_RESULTS]
     except Exception as e:  # noqa: BLE001 - search is best-effort
         logger.warning(f"mentor book search failed: {e}")
     return {"memories": memories, "search_results": hits}

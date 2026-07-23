@@ -133,3 +133,103 @@ class TestMemorizeNode:
 def test_graph_wiring():
     nodes = set(mentor.graph.get_graph().nodes)
     assert {"recall", "respond", "memorize"} <= nodes
+
+
+# ---------------------------------------------------------------------------
+# 蔵書の傾斜（manual x auto weighting）
+# ---------------------------------------------------------------------------
+
+
+class TestAutoFactors:
+    def test_frequency_raises_factor_with_cap(self):
+        import math
+
+        sources = [["source:a"], ["source:a", "source:b"], ["source:a"], None]
+        factors = mentor.compute_auto_factors(sources)
+        assert factors["source:a"] == pytest.approx(
+            min(1 + mentor.AUTO_WEIGHT_ALPHA * math.log1p(3), mentor.AUTO_WEIGHT_CAP)
+        )
+        assert factors["source:b"] < factors["source:a"]
+        assert "source:c" not in factors
+
+    def test_cap_is_enforced(self):
+        sources = [["source:hot"]] * 1000
+        factors = mentor.compute_auto_factors(sources)
+        assert factors["source:hot"] == mentor.AUTO_WEIGHT_CAP
+
+
+class TestApplyWeights:
+    HITS = [
+        {"parent_id": "source:a", "title": "A", "similarity": 0.80},
+        {"parent_id": "source:b", "title": "B", "similarity": 0.78},
+        {"parent_id": "source:c", "title": "C", "similarity": 0.75},
+    ]
+
+    def test_default_weights_keep_similarity_order(self):
+        out = mentor.apply_weights(self.HITS, {}, {})
+        assert [h["parent_id"] for h in out] == ["source:a", "source:b", "source:c"]
+        assert out[0]["weighted_score"] == pytest.approx(0.80)
+
+    def test_manual_weight_rerannks(self):
+        # ユーザーが C を最重視（2.0）、A を軽視（0.5）
+        out = mentor.apply_weights(
+            self.HITS, {"source:c": 2.0, "source:a": 0.5}, {}
+        )
+        assert [h["parent_id"] for h in out] == ["source:c", "source:b", "source:a"]
+
+    def test_zero_weight_excludes_the_book(self):
+        out = mentor.apply_weights(self.HITS, {"source:b": 0.0}, {})
+        assert [h["parent_id"] for h in out] == ["source:a", "source:c"]
+
+    def test_auto_factor_composes_multiplicatively(self):
+        out = mentor.apply_weights(
+            self.HITS, {"source:b": 1.2}, {"source:b": 1.3}
+        )
+        assert out[0]["parent_id"] == "source:b"
+        assert out[0]["weighted_score"] == pytest.approx(0.78 * 1.2 * 1.3, abs=1e-3)
+
+
+class TestWeightedRecall:
+    @pytest.mark.asyncio
+    async def test_recall_applies_weights_and_truncates(self, monkeypatch):
+        async def fake_repo_query(q, binds=None):
+            if "mentor_source_weight" in q:
+                return [{"source_id": "source:fav", "weight": 2.0}]
+            # mentor_memory: source:fav was referenced before -> auto boost too
+            return [{"question": "q", "gist": "g", "sources": ["source:fav"]}]
+
+        raw = [
+            {"parent_id": f"source:{i}", "similarity": 0.9 - i * 0.01}
+            for i in range(10)
+        ] + [{"parent_id": "source:fav", "similarity": 0.5}]
+        monkeypatch.setattr(
+            "open_notebook.database.repository.repo_query", fake_repo_query
+        )
+        monkeypatch.setattr(
+            "open_notebook.domain.notebook.vector_search",
+            AsyncMock(return_value=raw),
+        )
+        out = await mentor.recall_node({"message": "相談"}, {})
+        hits = out["search_results"]
+        assert len(hits) == mentor.MAX_SEARCH_RESULTS, "truncated after rerank"
+        # 0.5 similarity but 2.0 manual x auto boost -> top of the list
+        assert hits[0]["parent_id"] == "source:fav"
+
+    @pytest.mark.asyncio
+    async def test_weight_load_failure_falls_back_to_neutral(self, monkeypatch):
+        call_count = {"n": 0}
+
+        async def flaky_repo_query(q, binds=None):
+            if "mentor_source_weight" in q:
+                raise RuntimeError("table missing")
+            return []
+
+        monkeypatch.setattr(
+            "open_notebook.database.repository.repo_query", flaky_repo_query
+        )
+        monkeypatch.setattr(
+            "open_notebook.domain.notebook.vector_search",
+            AsyncMock(return_value=[{"parent_id": "source:a", "similarity": 0.9}]),
+        )
+        out = await mentor.recall_node({"message": "相談"}, {})
+        assert out["search_results"][0]["parent_id"] == "source:a"

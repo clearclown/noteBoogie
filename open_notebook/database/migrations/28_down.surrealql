@@ -1,0 +1,2 @@
+REMOVE TABLE IF EXISTS mentor_message;
+REMOVE TABLE IF EXISTS mentor_source_weight;

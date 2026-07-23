@@ -1,0 +1,17 @@
+-- Migration 28: mentor UI persistence (Book Navigator coach feature).
+-- mentor_message: display log for the /mentor page (the graph's own
+-- mentor_memory keeps only gists). mentor_source_weight: per-book (and
+-- per-chapter) learning weights applied when the mentor recalls the library.
+
+DEFINE TABLE IF NOT EXISTS mentor_message SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS created ON mentor_message DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS role ON mentor_message TYPE string ASSERT $value IN ["user", "mentor"];
+DEFINE FIELD IF NOT EXISTS content ON mentor_message TYPE string;
+DEFINE FIELD IF NOT EXISTS sources ON mentor_message TYPE option<array<string>>;
+
+DEFINE TABLE IF NOT EXISTS mentor_source_weight SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS updated ON mentor_source_weight DEFAULT time::now() VALUE time::now();
+DEFINE FIELD IF NOT EXISTS source ON mentor_source_weight TYPE record<source>;
+DEFINE FIELD IF NOT EXISTS weight ON mentor_source_weight TYPE float DEFAULT 1.0 ASSERT $value >= 0.0 AND $value <= 2.0;
+DEFINE FIELD IF NOT EXISTS chapter_weights ON mentor_source_weight FLEXIBLE TYPE option<object>;
+DEFINE INDEX IF NOT EXISTS idx_mentor_weight_source ON TABLE mentor_source_weight COLUMNS source UNIQUE;
