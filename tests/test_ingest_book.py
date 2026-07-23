@@ -270,3 +270,34 @@ async def test_ingest_captions_only_figure_and_full_page_kinds(
     source_kwargs = wired.mod.Source.call_args.kwargs
     assert "【図: 図の説明】" in source_kwargs["full_text"]
     assert "![" not in source_kwargs["full_text"]
+
+
+# ---------------------------------------------------------------------------
+# is_blank_image (vision-cost guard)
+# ---------------------------------------------------------------------------
+
+
+def test_blank_and_content_images_are_distinguished(tmp_path):
+    from PIL import Image, ImageDraw
+
+    from scripts.ingest_book import is_blank_image
+
+    blank = tmp_path / "blank.png"
+    Image.new("L", (200, 300), color=250).save(blank)
+    assert is_blank_image(blank) is True
+
+    figure = tmp_path / "figure.png"
+    im = Image.new("L", (200, 300), color=255)
+    draw = ImageDraw.Draw(im)
+    for y in range(0, 300, 20):
+        draw.line([(10, y), (190, y)], fill=0, width=3)
+    im.save(figure)
+    assert is_blank_image(figure) is False
+
+
+def test_unreadable_image_is_not_treated_as_blank(tmp_path):
+    from scripts.ingest_book import is_blank_image
+
+    broken = tmp_path / "broken.png"
+    broken.write_bytes(b"not an image")
+    assert is_blank_image(broken) is False

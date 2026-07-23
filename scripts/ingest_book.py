@@ -40,6 +40,24 @@ CAPTION_PROMPT = (
 )
 
 
+def is_blank_image(image_path: Path, stddev_threshold: float = 6.0) -> bool:
+    """True for near-uniform images (blank scan pages, separator strips).
+
+    Vision-captioning a blank page costs real money and yields captions like
+    「ほぼ白紙です」— measured on the first full-book run. Grayscale standard
+    deviation on a thumbnail is a cheap, reliable discriminator.
+    """
+    try:
+        from PIL import Image, ImageStat
+
+        with Image.open(image_path) as im:
+            gray = im.convert("L")
+            gray.thumbnail((256, 256))
+            return ImageStat.Stat(gray).stddev[0] < stddev_threshold
+    except Exception:  # noqa: BLE001 - never let the heuristic block captioning
+        return False
+
+
 def caption_figure(client, model: str, image_path: Path) -> "str | None":
     """Caption one figure image with Claude vision. Returns None on failure."""
     try:
@@ -137,6 +155,9 @@ async def ingest(
         for i, fig in enumerate(to_caption, 1):
             img = out_dir / fig["path"]
             if not img.exists():
+                continue
+            if is_blank_image(img):
+                logger.info(f"  [{i}/{len(to_caption)}] {fig['path']}: skipped (blank)")
                 continue
             cap = caption_figure(client, caption_model, img)
             figure_captions[fig["path"]] = cap
