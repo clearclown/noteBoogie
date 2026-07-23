@@ -21,7 +21,17 @@ from open_notebook.exceptions import (
 )
 
 MENTOR_AUDIO_DIR = Path(os.getenv("DATA_FOLDER", "./data")) / "podcasts" / "mentor"
-MENTOR_TTS_VOICE = os.getenv("MENTOR_TTS_VOICE", "kore")
+# 既定ボイスはプロバイダ別（"kore" は Gemini 専用名のため他社に渡すと失敗する）。
+# MENTOR_TTS_VOICE を設定するとプロバイダに関わらずそれを使う
+DEFAULT_VOICES_BY_PROVIDER = {"google": "kore", "openai": "alloy", "vertex": "kore"}
+
+
+def resolve_tts_voice(provider: str | None) -> str | None:
+    """env 優先 → プロバイダ既定 → None（esperanto/プロバイダ側の既定に委ねる）。"""
+    configured = os.getenv("MENTOR_TTS_VOICE")
+    if configured:
+        return configured
+    return DEFAULT_VOICES_BY_PROVIDER.get((provider or "").lower())
 # 直近何件の記憶から自動傾斜を推定するか
 AUTO_FACTOR_MEMORY_WINDOW = 50
 
@@ -182,7 +192,20 @@ class MentorService:
             raise ConfigurationError(
                 "No default text-to-speech model configured. Set one in Models settings."
             )
-        audio = await tts.agenerate_speech(text=text, voice=MENTOR_TTS_VOICE)
+        voice = resolve_tts_voice(getattr(tts, "provider", None))
+        if not voice:
+            # 未知プロバイダ: 利用可能ボイスの先頭で代替（connection_tester と同じ流儀）
+            try:
+                voices = getattr(tts, "available_voices", None) or {}
+                voice = next(iter(voices.keys()), None)
+            except Exception:  # noqa: BLE001 - voice discovery is best-effort
+                voice = None
+        if not voice:
+            raise ConfigurationError(
+                "Could not determine a TTS voice for this provider. "
+                "Set MENTOR_TTS_VOICE to a valid voice id."
+            )
+        audio = await tts.agenerate_speech(text=text, voice=voice)
         content = getattr(audio, "content", None) or b""
         if not content:
             raise ConfigurationError("Text-to-speech returned empty audio")

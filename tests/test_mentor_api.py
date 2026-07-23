@@ -128,7 +128,8 @@ async def test_speak_synthesizes_and_caches(mock_query, client, tmp_path, monkey
     monkeypatch.setattr(svc, "MENTOR_AUDIO_DIR", tmp_path)
     mock_query.return_value = [{"content": "**結論**です", "role": "mentor"}]
     tts = SimpleNamespace(
-        agenerate_speech=AsyncMock(return_value=SimpleNamespace(content=b"mp3bytes"))
+        provider="google",
+        agenerate_speech=AsyncMock(return_value=SimpleNamespace(content=b"mp3bytes")),
     )
     with patch(
         "open_notebook.ai.models.model_manager.get_text_to_speech",
@@ -410,3 +411,47 @@ async def test_activate_persona_switches_single_active(mock_query, client):
 async def test_activate_unknown_persona_404(mock_query, client):
     mock_query.return_value = []
     assert client.post("/api/mentor/personas/nope/activate").status_code == 404
+
+
+# --- TTS voice resolution (プロバイダ非依存化) --------------------------------
+
+
+def test_resolve_tts_voice_prefers_env(monkeypatch):
+    from api.mentor_service import resolve_tts_voice
+
+    monkeypatch.setenv("MENTOR_TTS_VOICE", "my-voice")
+    assert resolve_tts_voice("elevenlabs") == "my-voice"
+
+
+def test_resolve_tts_voice_provider_defaults(monkeypatch):
+    from api.mentor_service import resolve_tts_voice
+
+    monkeypatch.delenv("MENTOR_TTS_VOICE", raising=False)
+    assert resolve_tts_voice("google") == "kore"
+    assert resolve_tts_voice("openai") == "alloy"
+    # 未知プロバイダは None（呼び出し側が available_voices にフォールバック）
+    assert resolve_tts_voice("elevenlabs") is None
+    assert resolve_tts_voice(None) is None
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_speak_falls_back_to_available_voices(mock_query, client, tmp_path, monkeypatch):
+    """kore を知らないプロバイダでも available_voices の先頭で読み上げられる。"""
+    import api.mentor_service as svc
+
+    monkeypatch.setattr(svc, "MENTOR_AUDIO_DIR", tmp_path)
+    monkeypatch.delenv("MENTOR_TTS_VOICE", raising=False)
+    mock_query.return_value = [{"content": "回答", "role": "mentor"}]
+    tts = SimpleNamespace(
+        provider="elevenlabs",
+        available_voices={"voice-abc": {}},
+        agenerate_speech=AsyncMock(return_value=SimpleNamespace(content=b"mp3")),
+    )
+    with patch(
+        "open_notebook.ai.models.model_manager.get_text_to_speech",
+        new=AsyncMock(return_value=tts),
+    ):
+        response = client.post("/api/mentor/speak/mentor_message%3Aev1")
+    assert response.status_code == 200
+    assert tts.agenerate_speech.await_args.kwargs["voice"] == "voice-abc"
