@@ -172,6 +172,18 @@ pub async fn get_figure_path(db: &Surreal<Any>, figure_full_id: &str) -> DbResul
     Ok(rows.drain(..).next().and_then(|r| r.path))
 }
 
+/// Convert a sidecar-produced audio path to the DB storage form: relative to
+/// PODCASTS_FOLDER (e.g. "episodes/<id>/audio/<file>.mp3"), mirroring the
+/// Python side's `to_relative_audio_path` (#1030). The API treats absolute
+/// paths as legacy-invalid and refuses to serve them.
+pub fn relative_audio_path(path: &str) -> String {
+    let path = path.strip_prefix("file://").unwrap_or(path);
+    match path.rfind("/podcasts/") {
+        Some(idx) => path[idx + "/podcasts/".len()..].to_string(),
+        None => path.to_string(),
+    }
+}
+
 /// Record a generated chapter's audio + transcript/outline (JSON strings).
 pub async fn set_episode_result(
     db: &Surreal<Any>,
@@ -192,6 +204,7 @@ pub async fn set_episode_result(
     }
     let transcript = as_object(transcript_json, "transcript");
     let outline = as_object(outline_json, "outline");
+    let audio_file = relative_audio_path(audio_file);
     db.query(
         "UPDATE episode SET audio_file = $audio, transcript = $tr, outline = $ol \
          WHERE type::string(id) = $id RETURN NONE",
@@ -203,4 +216,27 @@ pub async fn set_episode_result(
     .await?
     .check()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::relative_audio_path;
+
+    #[test]
+    fn relativizes_sidecar_output_paths() {
+        assert_eq!(
+            relative_audio_path("/tmp/data/podcasts/episodes/abc/audio/abc.mp3"),
+            "episodes/abc/audio/abc.mp3"
+        );
+        assert_eq!(
+            relative_audio_path("file:///app/data/podcasts/episodes/x/y.mp3"),
+            "episodes/x/y.mp3"
+        );
+        assert_eq!(
+            relative_audio_path("./data/podcasts/episodes/x/y.mp3"),
+            "episodes/x/y.mp3"
+        );
+        // No podcasts root — left as-is (legacy-invalid on the API side).
+        assert_eq!(relative_audio_path("/somewhere/else/a.mp3"), "/somewhere/else/a.mp3");
+    }
 }

@@ -1,0 +1,4 @@
+-- Migration 17 rollback: remove book figure support.
+REMOVE INDEX IF EXISTS idx_book_figure_source ON TABLE book_figure;
+REMOVE TABLE IF EXISTS book_figure;
+-- Note: the episode_profile briefing append is not reverted (harmless text).

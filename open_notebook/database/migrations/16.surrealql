@@ -1,53 +1,7 @@
--- Migration 16: Audiobook (Book Navigator) — per-chapter monologue audiobooks.
--- Adds an `audiobook` parent table, links episodes to it as ordered chapters,
--- and seeds the single-speaker `book_navigator` episode/speaker profiles.
--- Backward compatible: existing dialogue episodes keep the new fields null.
+-- Migration 16: Add optional max_tokens override to episode_profile.
+-- Lets a profile cap (or raise) the output tokens used for outline and
+-- transcript generation, which is passed through to podcast_creator.
+-- The episode_profile table is SCHEMAFULL, so the field must be declared
+-- here for the value to persist.
 
--- Audiobook parent table
-DEFINE TABLE IF NOT EXISTS audiobook SCHEMAFULL;
-DEFINE FIELD IF NOT EXISTS created ON audiobook DEFAULT time::now() VALUE $before OR time::now();
-DEFINE FIELD IF NOT EXISTS updated ON audiobook DEFAULT time::now() VALUE time::now();
-DEFINE FIELD IF NOT EXISTS name ON TABLE audiobook TYPE string;
-DEFINE FIELD IF NOT EXISTS source_id ON TABLE audiobook TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS episode_profile ON TABLE audiobook FLEXIBLE TYPE option<object>;
-DEFINE FIELD IF NOT EXISTS speaker_profile ON TABLE audiobook FLEXIBLE TYPE option<object>;
-DEFINE FIELD IF NOT EXISTS briefing ON TABLE audiobook TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS chapter_count ON TABLE audiobook TYPE int DEFAULT 0;
-DEFINE FIELD IF NOT EXISTS command ON TABLE audiobook TYPE option<record<command>>;
-
--- Episode -> audiobook chapter linkage
-DEFINE FIELD IF NOT EXISTS audiobook ON TABLE episode TYPE option<record<audiobook>>;
-DEFINE FIELD IF NOT EXISTS chapter_index ON TABLE episode TYPE option<int>;
-DEFINE FIELD IF NOT EXISTS chapter_title ON TABLE episode TYPE option<string>;
-
-DEFINE INDEX IF NOT EXISTS idx_episode_audiobook ON TABLE episode COLUMNS audiobook CONCURRENTLY;
-
--- Seed: single-speaker Book Navigator profiles. Model-registry fields
--- (outline_llm / transcript_llm / voice_model) are left unset and resolved
--- at runtime, like the seeded `solo_expert` profile.
-insert into episode_profile
-[
-    {
-        name: "book_navigator",
-        description: "Single mentor, structured monologue for business books (per chapter)",
-        speaker_config: "book_navigator_mentor",
-        default_briefing: "あなたは優秀なビジネスメンターです。与えられた章のテキストを解析し、疲れたビジネスパーソンが耳だけで聴いて100%理解できるよう、一人語り（モノローグ）で喋り口調の台本を作ってください。必ず次の3部構成で話してください。1. この章が解決するビジネス上の問題（「この章は、〜という悩みに答えます」と切り出す）。2. 重要な3つのコンセプト（「1つ目は〜」「2つ目は〜」「3つ目は〜」と番号を声に出して数える。各コンセプトは最初に結論を一言で述べてから説明する）。3. 明日からそのまま真似できるアクションプラン（手順を1ステップずつ、具体的に）。ルール: 専門用語は避け平易な言葉に言い換える。句読点を多めに使い聴き取りやすい間を作る。箇条書き記号や見出し記号は読み上げず自然な話し言葉にする。聞き流しても要点が分かるよう各パートの冒頭で何を話すか予告する。",
-        num_segments: 3
-    }
-];
-
-insert into speaker_profile
-[
-    {
-        name: "book_navigator_mentor",
-        description: "Single business mentor voice for Book Navigator audiobooks",
-        speakers: [
-            {
-                name: "Mentor",
-                voice_id: "nova",
-                backstory: "経験豊富なビジネスメンター。難しい概念を、忙しい人でも耳だけで理解できるよう噛み砕いて伝えるのが得意。",
-                personality: "落ち着いた語り口。結論から話し、具体例と次の一手を必ず添える。"
-            }
-        ]
-    }
-];
+DEFINE FIELD IF NOT EXISTS max_tokens ON TABLE episode_profile TYPE option<int>;

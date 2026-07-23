@@ -1,0 +1,23 @@
+-- Migration 25: Book figures (SuperBook converter integration).
+-- Stores figures/graphs separated from a book PDF, linked to the ingested
+-- Source, with vision-generated captions for the audio script and the
+-- frontend figure gallery.
+
+DEFINE TABLE IF NOT EXISTS book_figure SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS created ON book_figure DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS updated ON book_figure DEFAULT time::now() VALUE time::now();
+DEFINE FIELD IF NOT EXISTS source ON TABLE book_figure TYPE record<source>;
+DEFINE FIELD IF NOT EXISTS page ON TABLE book_figure TYPE int;
+DEFINE FIELD IF NOT EXISTS chapter_index ON TABLE book_figure TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS path ON TABLE book_figure TYPE string;
+DEFINE FIELD IF NOT EXISTS kind ON TABLE book_figure TYPE string DEFAULT "figure";
+DEFINE FIELD IF NOT EXISTS caption ON TABLE book_figure TYPE option<string>;
+
+DEFINE INDEX IF NOT EXISTS idx_book_figure_source ON TABLE book_figure COLUMNS source CONCURRENTLY;
+
+-- Teach the Book Navigator mentor to narrate figures: the ingest pipeline
+-- replaces image links in the book Markdown with 【図: <caption>】 markers.
+UPDATE episode_profile SET default_briefing = string::concat(
+    default_briefing,
+    "本文中に【図: 説明】という記載が現れたら、『ここで図が出てきます。この図は〜を示しています』のように、その説明を自然な話し言葉に変えて聴き手に伝える。図の記載そのもの（【図: 】という記号）は読み上げない。"
+) WHERE name = "book_navigator" AND !string::contains(default_briefing, "ここで図が出てきます");

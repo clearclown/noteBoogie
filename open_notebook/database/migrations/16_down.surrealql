@@ -1,8 +1,3 @@
--- Migration 16 rollback: remove Book Navigator audiobook support.
-DELETE episode_profile WHERE name = "book_navigator";
-DELETE speaker_profile WHERE name = "book_navigator_mentor";
-REMOVE INDEX IF EXISTS idx_episode_audiobook ON TABLE episode;
-REMOVE FIELD IF EXISTS chapter_title ON TABLE episode;
-REMOVE FIELD IF EXISTS chapter_index ON TABLE episode;
-REMOVE FIELD IF EXISTS audiobook ON TABLE episode;
-REMOVE TABLE IF EXISTS audiobook;
+-- Migration 16 rollback: Remove max_tokens field from episode_profile.
+
+REMOVE FIELD IF EXISTS max_tokens ON TABLE episode_profile;

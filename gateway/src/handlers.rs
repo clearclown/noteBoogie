@@ -71,10 +71,21 @@ pub async fn delete_audiobook(Path(id): Path<String>) -> ViewResult<Response> {
     };
     match repo::delete_audiobook(db, &id).await {
         Ok(audio_files) => {
-            // Best-effort on-disk cleanup of generated mp3s.
+            // Best-effort on-disk cleanup of generated mp3s. Stored paths are
+            // relative to PODCASTS_FOLDER since #1030; tolerate legacy
+            // absolute values from pre-migration rows.
+            let podcasts_root = format!(
+                "{}/podcasts",
+                Config::from_env().data_folder.trim_end_matches('/')
+            );
             for f in audio_files {
                 let path = f.strip_prefix("file://").unwrap_or(&f);
-                let _ = std::fs::remove_file(path);
+                let resolved = if path.starts_with('/') {
+                    path.to_string()
+                } else {
+                    format!("{podcasts_root}/{path}")
+                };
+                let _ = std::fs::remove_file(resolved);
             }
             Response::ok()
                 .with_json(&json!({"message": "deleted", "id": id}))

@@ -78,7 +78,7 @@ async fn set_episode_result_records_audio_and_json() {
     repo::set_episode_result(
         &db,
         &eid,
-        "file:///tmp/ch0.mp3",
+        "/tmp/data/podcasts/episodes/er0/audio/ch0.mp3",
         r#"{"transcript":[{"speaker":"Mentor","dialogue":"hi"}]}"#,
         r#"{"segments":[]}"#,
     )
@@ -87,7 +87,11 @@ async fn set_episode_result_records_audio_and_json() {
 
     let chapters = repo::get_chapters(&db, "audiobook:abr").await.unwrap();
     assert_eq!(chapters.len(), 1);
-    assert_eq!(chapters[0].audio_file.as_deref(), Some("file:///tmp/ch0.mp3"));
+    // Stored relative to PODCASTS_FOLDER (#1030) so the API can serve it.
+    assert_eq!(
+        chapters[0].audio_file.as_deref(),
+        Some("episodes/er0/audio/ch0.mp3")
+    );
 }
 
 #[tokio::test]
@@ -104,12 +108,12 @@ async fn delete_audiobook_cascades_and_returns_audio_paths() {
     repo::create_chapter_episode(&db, "ed1", "abd", "c1", &ep, &sp, "b", "y", 1, "C1")
         .await
         .unwrap();
-    repo::set_episode_result(&db, &e0, "file:///tmp/c0.mp3", "null", "null")
+    repo::set_episode_result(&db, &e0, "/tmp/data/podcasts/episodes/ed0/c0.mp3", "null", "null")
         .await
         .unwrap();
 
     let removed_files = repo::delete_audiobook(&db, "audiobook:abd").await.unwrap();
-    assert_eq!(removed_files, vec!["file:///tmp/c0.mp3".to_string()]);
+    assert_eq!(removed_files, vec!["episodes/ed0/c0.mp3".to_string()]);
 
     // Audiobook + all chapters are gone.
     assert!(repo::get_audiobook(&db, "audiobook:abd").await.unwrap().is_none());
