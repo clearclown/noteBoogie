@@ -9,10 +9,12 @@ WORKDIR /app
 # Dependency layer first (cache-friendly)
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --group sidecar --no-install-project
-# Application code (sidecar imports open_notebook + prompts templates)
+# Application code (sidecar imports open_notebook + prompts templates,
+# and the quality gate imports scripts/eval_transcript)
 COPY open_notebook/ open_notebook/
 COPY sidecar/ sidecar/
 COPY prompts/ prompts/
+COPY scripts/eval_transcript.py scripts/eval_transcript.py
 ENV PATH="/app/.venv/bin:$PATH" \
     SIDECAR_ADDRESS="[::]:50069" \
     DATA_FOLDER=/app/data
