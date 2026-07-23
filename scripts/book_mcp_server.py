@@ -82,7 +82,7 @@ async def do_ask_book(question: str) -> str:
             "(run scripts/setup_book_navigator_models.py --set-defaults)"
         )
     model_id = str(model_id)
-    result = await graph.ainvoke(
+    result = await graph.ainvoke(  # type: ignore[call-overload]
         {"question": question},
         config={
             "configurable": {
