@@ -239,4 +239,19 @@ mod tests {
         // No podcasts root — left as-is (legacy-invalid on the API side).
         assert_eq!(relative_audio_path("/somewhere/else/a.mp3"), "/somewhere/else/a.mp3");
     }
+
+    #[test]
+    fn relative_audio_path_edge_cases() {
+        // Already-relative value without a podcasts segment passes through.
+        assert_eq!(relative_audio_path("episodes/x/y.mp3"), "episodes/x/y.mp3");
+        assert_eq!(relative_audio_path(""), "");
+        // Multiple occurrences: rfind keeps only the innermost remainder, so a
+        // data dir that itself contains "/podcasts/" cannot leak into the value.
+        assert_eq!(
+            relative_audio_path("/srv/podcasts/data/podcasts/episodes/a.mp3"),
+            "episodes/a.mp3"
+        );
+        // A path ENDING in /podcasts/ yields empty (degenerate but not a panic).
+        assert_eq!(relative_audio_path("/data/podcasts/"), "");
+    }
 }

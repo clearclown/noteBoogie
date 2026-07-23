@@ -36,3 +36,54 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VARS: &[&str] = &[
+        "SURREAL_URL",
+        "SURREAL_USER",
+        "SURREAL_PASSWORD",
+        "SURREAL_NAMESPACE",
+        "SURREAL_DATABASE",
+        "SIDECAR_GRPC_ADDR",
+        "DATA_FOLDER",
+        "GATEWAY_BIND_ADDR",
+    ];
+
+    // Env vars are process-global, so defaults + overrides live in ONE test to
+    // avoid races with parallel test threads mutating the same variables.
+    #[test]
+    fn from_env_defaults_and_overrides() {
+        unsafe {
+            for v in VARS {
+                env::remove_var(v);
+            }
+        }
+        let cfg = Config::from_env();
+        assert_eq!(cfg.surreal_url, "ws://localhost:8000");
+        assert_eq!(cfg.surreal_user, "root");
+        assert_eq!(cfg.surreal_ns, "open_notebook");
+        assert_eq!(cfg.sidecar_addr, "http://127.0.0.1:50069");
+        assert_eq!(cfg.data_folder, "./data");
+        assert_eq!(cfg.bind_addr, "127.0.0.1:8088");
+
+        unsafe {
+            // The Python stack's URL form includes /rpc; the Rust SDK must not.
+            env::set_var("SURREAL_URL", "ws://db:9000/rpc");
+            env::set_var("DATA_FOLDER", "/srv/data/");
+            env::set_var("GATEWAY_BIND_ADDR", "0.0.0.0:9999");
+        }
+        let cfg = Config::from_env();
+        assert_eq!(cfg.surreal_url, "ws://db:9000", "trailing /rpc stripped");
+        assert_eq!(cfg.data_folder, "/srv/data/");
+        assert_eq!(cfg.bind_addr, "0.0.0.0:9999");
+
+        unsafe {
+            for v in VARS {
+                env::remove_var(v);
+            }
+        }
+    }
+}
