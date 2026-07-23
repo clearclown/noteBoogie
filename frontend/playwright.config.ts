@@ -16,7 +16,11 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'npx next dev -p 3100',
+    // CI uses a production build: next dev compiles pages on demand and the
+    // first navigation can blow the test timeout on slow runners.
+    command: process.env.CI
+      ? 'npm run build && npx next start -p 3100'
+      : 'npx next dev -p 3100',
     url: 'http://localhost:3100',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
