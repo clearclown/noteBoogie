@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  BookUp,
   Headphones,
   Image as ImageIcon,
   Loader2,
@@ -31,6 +32,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { audiobooksApi } from '@/lib/api/audiobooks'
 import { podcastsApi } from '@/lib/api/podcasts'
+import { ImportBookDialog } from './ImportBookDialog'
 import { getApiUrl } from '@/lib/config'
 import {
   AUDIOBOOK_QUERY_KEYS,
@@ -554,6 +556,7 @@ export function AudiobooksTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const handleDelete = async (audiobookId: string) => {
     setDeletingId(audiobookId)
@@ -580,12 +583,17 @@ export function AudiobooksTab() {
   }
 
   const generateBar = (
-    <div className="flex justify-end">
+    <div className="flex flex-wrap justify-end gap-2">
+      <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+        <BookUp className="h-4 w-4" />
+        {t('podcasts.importBook')}
+      </Button>
       <Button size="sm" onClick={() => setGenerateOpen(true)}>
         <Plus className="h-4 w-4" />
         {t('podcasts.audiobookGenerate')}
       </Button>
       <GenerateAudiobookDialog open={generateOpen} onOpenChange={setGenerateOpen} />
+      <ImportBookDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   )
 

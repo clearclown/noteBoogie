@@ -24,6 +24,7 @@ from api.auth import PasswordAuthMiddleware
 from api.middleware import MaxBodySizeMiddleware, get_max_upload_size_bytes
 from api.routers import (
     auth,
+    books,
     capabilities,
     chat,
     config,
@@ -406,6 +407,7 @@ app.include_router(providers.router, prefix="/api", tags=["providers"])
 app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(languages.router, prefix="/api", tags=["languages"])
 app.include_router(mentor.router, prefix="/api", tags=["mentor"])
+app.include_router(books.router, prefix="/api", tags=["books"])
 
 
 @app.get("/")

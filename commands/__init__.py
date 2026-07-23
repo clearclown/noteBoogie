@@ -8,6 +8,7 @@ from open_notebook.utils.proxy import ensure_internal_no_proxy
 
 ensure_internal_no_proxy()
 
+from .book_commands import import_book_command
 from .embedding_commands import (
     embed_insight_command,
     embed_note_command,
@@ -26,4 +27,5 @@ __all__ = [
     # Other commands
     "generate_podcast_command",
     "process_source_command",
+    "import_book_command",
 ]

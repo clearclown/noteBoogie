@@ -2,7 +2,19 @@
 
 前提: [SETUP.md](SETUP.md) 完了、`make book-stack` + `make run` 起動済み。
 
-## 1. PDF → Markdown 変換
+## 0. GUI から本を追加（推奨・NotebookLM 流）
+
+http://localhost:3000/podcasts → オーディオブックタブ → **「本を追加」** → PDF を
+アップロードするだけで、変換（OCR/縦書き対応）→ 図キャプション → 埋め込みまで
+サーバー側ジョブが自動実行します（400頁で30分前後、進捗はダイアログに表示。
+画面を閉じても処理は続きます）。完了すると検索・相談・オーディオブック生成に
+すぐ使えます。
+
+注意: 変換はホスト側 worker の YomiToku(MPS) を使うため、**worker はホストで
+起動している必要があります**（`make book-stack` はそうなっています。コンテナのみ
+の構成では明確なエラーで failed になります）。CLI 派は以下 §1〜§2 を使用。
+
+## 1. PDF → Markdown 変換（CLI）
 
 ```bash
 make convert-book PDF=input/本.pdf            # 出力: data/books/本/
