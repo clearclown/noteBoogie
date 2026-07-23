@@ -56,6 +56,16 @@ curl -X POST http://localhost:8088/audiobooks/generate \
 # 任意: "max_chapters": 2（試し生成）, "briefing_suffix": "追加指示"
 ```
 
+### mp3 の持ち出し（1フォルダに集約）
+
+生成された章 mp3 は DB 管理のため `data/podcasts/episodes/<id>/` に散在します。
+プレイヤーや他端末で聴くときは export でまとめてください:
+
+```bash
+make export-audiobook AUDIOBOOK=audiobook:xxxx   # → data/audiobooks/<タイトル>/
+# 01_第1章….mp3 … 13_第3部….mp3 + playlist.m3u8（コピーの代わりに --link でハードリンク可）
+```
+
 ## 5. MCP（Claude Desktop / Claude Code から蔵書を使う）
 
 ```bash
@@ -115,6 +125,16 @@ make set-book-models TTS_PROVIDER=openai_compatible TTS=kokoro
 蔵書を読み込んだ「コンサルの師匠」に、資料作成・仕事の進め方・キャリアを相談できます。
 過去の相談を記憶（`mentor_memory`）しており、蔵書に根拠がある助言は『本のタイトル』付きで返します。
 
+### REST API（フロントUI用バックエンド — /mentor ページは開発中）
+
+| エンドポイント | 内容 |
+|---|---|
+| `POST /api/mentor/consult {message}` | 師匠に相談（回答 + 参照した本 + message_id） |
+| `POST /api/mentor/speak/{message_id}` | 回答をTTSでmp3化（既定ボイス kore、`data/podcasts/mentor/` にキャッシュ） |
+| `GET /api/mentor/messages` / `GET /api/mentor/memories` | 会話ログ / 長期記憶の一覧 |
+| `DELETE /api/mentor/memories/{id}` | 誤学習した記憶の削除 |
+| `GET /api/mentor/weights` / `PUT /api/mentor/weights/{source_id}` | **学習の傾斜**: 本単位 0.0〜2.0（0=除外）+ 章単位の重み。自動傾斜（よく参照する本を緩やかに加点）と掛け算合成 |
+
 MCP 経由（Claude Code / Desktop）:
 
 ```
@@ -156,5 +176,5 @@ uv run --env-file .env python scripts/optimize_briefing.py \
 | 取り込み後、チャットが本文を知らない | worker 未起動で埋め込み未処理。`make worker-start` 後にジョブが流れる |
 | 章の音声がフロントで再生できない | gateway をリポジトリルート以外から起動すると mp3 が `./data/podcasts` に入らない。`make book-stack` を使う |
 | 生成が「生成中」のまま | sidecar 未起動（gateway 起動ログの `sidecar not reachable` を確認）。失敗時は赤バッジ+エラーが出る |
-| フロントから gateway に繋がらない | `NEXT_PUBLIC_GATEWAY_URL` と gateway の bind アドレスを確認（CORS は許可済み） |
+| フロントから gateway に繋がらない | 接続先はアクセス元ホスト名から実行時導出（`:8088`）。gateway の bind アドレスと、上書きしている場合は `NEXT_PUBLIC_GATEWAY_URL` を確認（CORS は許可済み） |
 | DeepSeek 比較が Insufficient Balance | DeepSeek プラットフォームで残高チャージが必要 |

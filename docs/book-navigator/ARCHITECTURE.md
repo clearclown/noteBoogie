@@ -18,7 +18,7 @@ SurrealDB
   ├─ source_embedding（workerが embed_source ジョブで生成）
   └─ audiobook / episode（migration 24/26: 章リンク・生成エラー）
   │
-  ├─ FastAPI :5055 …… chat / ask（LangGraph）・章音声の配信
+  ├─ FastAPI :5055 …… chat / ask（LangGraph）・章音声の配信・mentor REST（/api/mentor/*）
   ├─ MCP stdio …… scripts/book_mcp_server.py（search/ask/figures）
   └─ Rust gateway :8088（reinhardt-web）
         │  POST /audiobooks/generate
@@ -40,6 +40,7 @@ SurrealDB
 | sidecar（Python） | LLM/TTS 実行（podcast-creator をラップ、Rust に等価物が無い部分だけ） | `sidecar/{podcast_sidecar,podcast_runner}.py` |
 | ingest | 変換出力の取り込み・キャプション・埋め込み投入 | `scripts/ingest_book.py` |
 | MCP | 蔵書ナレッジの外部公開 | `scripts/book_mcp_server.py` |
+| mentor | 師匠グラフ（recall→respond→memorize、傾斜再ランク）と UI 用 REST（consult/speak/messages/memories/weights） | `open_notebook/graphs/mentor.py`, `api/mentor_service.py`, `api/routers/mentor.py` |
 | 評価/最適化 | 台本採点・モデル比較・RLプロンプト改善 | `scripts/{eval_transcript,optimize_briefing}.py` |
 
 ## 章分割のガードレール（gateway/src/chapters.rs）
@@ -63,6 +64,8 @@ OCR本文の「ほぼ空の章」から LLM が尤もらしい台本を捏造す
 | 24 | `audiobook` テーブル、`episode` に audiobook/chapter_index/chapter_title、`book_navigator`/`book_navigator_mentor` プロファイル seed（speaker を先に seed し record link で参照） |
 | 25 | `book_figure` テーブル、briefing への図ナレーション指示の追記（冪等ガード付き） |
 | 26 | `episode.generation_error`（失敗の可視化） |
+| 27 | `mentor_memory`（師匠の長期記憶: 質問・要点・参照本） |
+| 28 | `mentor_message`（/mentor 表示用の会話生ログ）+ `mentor_source_weight`（本単位 0〜2 + 章単位の学習傾斜、source UNIQUE） |
 
 登録は `open_notebook/database/async_migrate.py`（ハードコード必須）。upstream が番号を消費するため、マージ時は**改番**が必要になることがある（16/17→24/25 の前例）。`tests/test_book_navigator_migrations.py` が番号ギャップを監視。
 
@@ -79,7 +82,9 @@ OCR本文の「ほぼ空の章」から LLM が尤もらしい台本を捏造す
 ## 既知の制約・設計上の逸脱
 
 - `<audio>` 要素はタブ内ローカル（ページ遷移で再生停止）。連続再生設定と視聴位置のみ zustand persist で永続化
-- `book_figure.path` は絶対パス保存 → gateway のコンテナ化時は共有ボリューム or 相対化が必要
+- `book_figure.path` は絶対パス保存 → コンテナ実行時は gateway が `/data/` 以降を `/app/data` に自動リマップ（`repo::remap_into_data_folder`、共有ボリューム前提）
+- gateway の Path 抽出は percent-decode されない（reinhardt-web の仕様）→ 全 id ハンドラで `decode_id()` を通す。フロントは `encodeURIComponent` した record id を送る（実ブラウザ検証で発覚。密閉モックはエンコード済みURLに一致してしまい検出できなかった）
+- フロント→gateway の接続先は `window.location.hostname` から実行時導出（`:8088`）。`NEXT_PUBLIC_GATEWAY_URL` は上書き用（開発時）。Tailscale クライアントからも追加設定不要
 - ask は蔵書グローバル検索（notebook スコープ不可）。メンターAI 設計（ADVANCED_ROADMAP）ではむしろ利点として扱う
 - 全量変換の manifest 章リストは柱の再検出でノイズを含む（オーディオブック側はガードレールで吸収。図の章対応の精度に影響）
 - converter の `--include-page-numbers` / `--validate` / `--api-provider` は未配線（help に明示）

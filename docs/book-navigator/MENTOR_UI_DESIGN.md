@@ -233,9 +233,9 @@ score' = similarity × effective(source)
 
 ## 13. 実装フェーズ（改訂）
 
-| フェーズ | 内容 | 規模 |
-|---|---|---|
-| C1 | migration 28（mentor_message + mentor_source_weight）+ recall 傾斜（手動×自動）+ テスト | S〜M |
-| C2 | v1 会話UI（§1〜§7のまま）+ ⚖️傾斜タブ + API | M |
-| C3 | スライドレビュー: 画像/PDF 経路（vision）+ migration 29 + 📊タブ | M |
-| C4 | pptx 構造解析 lint（python-pptx）を C3 に合流 | S〜M |
+| フェーズ | 内容 | 規模 | 状態 |
+|---|---|---|---|
+| C1 | migration 28（mentor_message + mentor_source_weight）+ recall 傾斜（手動×自動）+ テスト | S〜M | ✅ 完了 |
+| C2 | v1 会話UI（§1〜§7のまま）+ ⚖️傾斜タブ + API | M | API 完了（`api/mentor_service.py` + `api/routers/mentor.py`、テスト23件）/ フロント実装中 |
+| C3 | スライドレビュー: 画像/PDF 経路（vision）+ migration 29 + 📊タブ | M | 未着手 |
+| C4 | pptx 構造解析 lint（python-pptx）を C3 に合流 + §11b 修正適用 | S〜M | 未着手 |

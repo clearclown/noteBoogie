@@ -41,7 +41,8 @@ ai_bridge/ai_venv/bin/python -c "import torch; print(torch.backends.mps.is_avail
 | `SURREAL_URL` ほか | DB 接続（既定で compose の SurrealDB に一致） |
 | `GATEWAY_BIND_ADDR` | gateway の bind（既定 127.0.0.1:8088） |
 | `SIDECAR_GRPC_ADDR` | gateway→sidecar（既定 http://127.0.0.1:50069） |
-| `NEXT_PUBLIC_GATEWAY_URL` | フロント→gateway（既定 http://localhost:8088、frontend 側の env） |
+| `NEXT_PUBLIC_GATEWAY_URL` | フロント→gateway の上書き（未設定ならアクセス元ホスト名から実行時導出、frontend 側の env） |
+| `MENTOR_TTS_VOICE` | 師匠回答の読み上げボイス（既定 kore） |
 
 `DATA_FOLDER` は Open Notebook 本体が `./data` に固定しているため、**gateway もリポジトリルートから起動する**必要があります（`make book-stack` はそうなっています）。
 
@@ -52,7 +53,7 @@ make book-stack   # SurrealDB + API(:5055) + worker + sidecar(:50069) + gateway(
 make run          # フロント(:3000)（別ターミナル）
 ```
 
-- API 起動時にマイグレーション（24/25/26 含む）が自動適用されます
+- API 起動時にマイグレーション（24〜28 含む）が自動適用されます
 - **worker（surreal-commands）が埋め込みジョブを処理**します。worker 無しだと取り込み後の埋め込みが進みません
 - 停止は `make stop-all`
 
