@@ -1,0 +1,272 @@
+"""Unit + integration tests for scripts/ingest_book.py (SuperBook ingestion)."""
+
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from scripts.ingest_book import (
+    caption_figure,
+    chapter_index_for_page,
+    ingest,
+    rewrite_markdown_for_audio,
+)
+
+# ---------------------------------------------------------------------------
+# chapter_index_for_page
+# ---------------------------------------------------------------------------
+
+CHAPTERS = [
+    {"title": "はじめに", "page": 7},
+    {"title": "第1章", "page": 16},
+    {"title": "第2章", "page": 30},
+]
+
+
+def test_page_before_first_chapter_has_no_index():
+    assert chapter_index_for_page(CHAPTERS, 1) is None
+    assert chapter_index_for_page(CHAPTERS, 6) is None
+
+
+def test_page_on_chapter_boundary_belongs_to_that_chapter():
+    assert chapter_index_for_page(CHAPTERS, 7) == 0
+    assert chapter_index_for_page(CHAPTERS, 16) == 1
+    assert chapter_index_for_page(CHAPTERS, 30) == 2
+
+
+def test_page_between_boundaries_belongs_to_previous_chapter():
+    assert chapter_index_for_page(CHAPTERS, 15) == 0
+    assert chapter_index_for_page(CHAPTERS, 29) == 1
+
+
+def test_page_past_last_chapter_belongs_to_last():
+    assert chapter_index_for_page(CHAPTERS, 999) == 2
+
+
+def test_empty_chapters_yield_none():
+    assert chapter_index_for_page([], 5) is None
+
+
+# ---------------------------------------------------------------------------
+# rewrite_markdown_for_audio
+# ---------------------------------------------------------------------------
+
+
+def test_captioned_image_becomes_marker():
+    md = "前文\n![図](images/page_003_fig_001.png)\n後文"
+    out = rewrite_markdown_for_audio(md, {"images/page_003_fig_001.png": "売上の推移"})
+    assert "【図: 売上の推移】" in out
+    assert "![" not in out
+
+
+def test_uncaptioned_image_is_stripped_with_trailing_newline():
+    md = "A\n![図](images/gone.png)\nB"
+    out = rewrite_markdown_for_audio(md, {})
+    assert out == "A\nB"
+
+
+def test_alt_text_is_ignored_for_lookup():
+    md = "![なんでもいい代替テキスト](images/x.png)"
+    out = rewrite_markdown_for_audio(md, {"images/x.png": "キャプション"})
+    assert out == "【図: キャプション】"
+
+
+def test_multiple_images_mixed():
+    md = "![a](i/1.png)\n本文\n![b](i/2.png)\n"
+    out = rewrite_markdown_for_audio(md, {"i/2.png": "図2"})
+    assert out == "本文\n【図: 図2】"
+
+
+# ---------------------------------------------------------------------------
+# caption_figure (anthropic client stubbed)
+# ---------------------------------------------------------------------------
+
+
+def _fake_client(response=None, error=None):
+    client = MagicMock()
+    if error is not None:
+        client.messages.create.side_effect = error
+    else:
+        client.messages.create.return_value = response
+    return client
+
+
+def _response(stop_reason="end_turn", blocks=None):
+    return SimpleNamespace(
+        stop_reason=stop_reason,
+        content=blocks
+        if blocks is not None
+        else [SimpleNamespace(type="text", text="  この図は矢印を示す。  ")],
+    )
+
+
+def test_caption_success_strips_whitespace(tmp_path):
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"\x89PNGfake")
+    client = _fake_client(response=_response())
+    assert caption_figure(client, "m", img) == "この図は矢印を示す。"
+
+
+def test_caption_refusal_returns_none(tmp_path):
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"x")
+    client = _fake_client(response=_response(stop_reason="refusal"))
+    assert caption_figure(client, "m", img) is None
+
+
+def test_caption_api_error_returns_none(tmp_path):
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"x")
+    client = _fake_client(error=RuntimeError("boom"))
+    assert caption_figure(client, "m", img) is None
+
+
+def test_caption_media_type_for_jpg(tmp_path):
+    img = tmp_path / "fig.jpg"
+    img.write_bytes(b"x")
+    client = _fake_client(response=_response())
+    caption_figure(client, "m", img)
+    payload = client.messages.create.call_args.kwargs
+    image_block = payload["messages"][0]["content"][0]
+    assert image_block["source"]["media_type"] == "image/jpeg"
+
+
+def test_caption_no_text_block_returns_none(tmp_path):
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"x")
+    client = _fake_client(
+        response=_response(blocks=[SimpleNamespace(type="thinking", text="…")])
+    )
+    assert caption_figure(client, "m", img) is None
+
+
+# ---------------------------------------------------------------------------
+# ingest() orchestration (domain + repo mocked, filesystem real via tmp_path)
+# ---------------------------------------------------------------------------
+
+
+def _write_book_dir(tmp_path, figures=None, chapters=None, md_body=None):
+    manifest = {
+        "version": 1,
+        "pages": 3,
+        "text_direction": "vertical",
+        "chapters": chapters
+        if chapters is not None
+        else [{"title": "第1章", "page": 1}, {"title": "第2章", "page": 3}],
+        "figures": figures if figures is not None else [],
+    }
+    (tmp_path / "book_manifest.json").write_text(json.dumps(manifest))
+    (tmp_path / "本.md").write_text(
+        md_body if md_body is not None else "# 第1章\n本文です。\n"
+    )
+    (tmp_path / "images").mkdir(exist_ok=True)
+    return tmp_path
+
+
+class _FakeRecord:
+    def __init__(self, rid):
+        self.id = rid
+        self.save = AsyncMock()
+        self.add_to_notebook = AsyncMock()
+        self.vectorize = AsyncMock(return_value="command:job1")
+
+
+@pytest.fixture
+def wired(monkeypatch):
+    """Patch every persistence surface ingest() touches; return the mocks."""
+    import scripts.ingest_book as mod
+
+    notebook = _FakeRecord("notebook:n1")
+    source = _FakeRecord("source:s1")
+    monkeypatch.setattr(mod, "Notebook", MagicMock(return_value=notebook))
+    monkeypatch.setattr(mod, "Source", MagicMock(return_value=source))
+    monkeypatch.setattr(mod, "Asset", MagicMock(side_effect=lambda **kw: kw))
+    repo_insert = AsyncMock()
+    monkeypatch.setattr(mod, "repo_insert", repo_insert)
+    monkeypatch.setattr(
+        mod, "repo_query", AsyncMock(return_value=[{"count": 0}])
+    )
+    monkeypatch.setattr(mod, "ensure_record_id", lambda x: x)
+    return SimpleNamespace(
+        notebook=notebook, source=source, repo_insert=repo_insert, mod=mod
+    )
+
+
+@pytest.mark.asyncio
+async def test_ingest_missing_manifest_exits(tmp_path):
+    with pytest.raises(SystemExit):
+        await ingest(tmp_path, None, None, captions=False, caption_model="m")
+
+
+@pytest.mark.asyncio
+async def test_ingest_missing_md_exits(tmp_path):
+    (tmp_path / "book_manifest.json").write_text("{}")
+    with pytest.raises(SystemExit):
+        await ingest(tmp_path, None, None, captions=False, caption_model="m")
+
+
+@pytest.mark.asyncio
+async def test_ingest_saves_source_and_figures(tmp_path, wired):
+    figures = [
+        {"path": "images/page_001_full.png", "page": 1, "kind": "full_page"},
+        {"path": "images/page_003_fig_001.png", "page": 3, "kind": "figure"},
+        {"path": "images/cover_001.png", "page": 1, "kind": "cover"},
+    ]
+    dirp = _write_book_dir(tmp_path, figures=figures)
+    await ingest(dirp, None, "テスト本", captions=False, caption_model="m")
+
+    wired.notebook.save.assert_awaited_once()
+    wired.source.save.assert_awaited_once()
+    wired.source.add_to_notebook.assert_awaited_once_with("notebook:n1")
+    wired.source.vectorize.assert_awaited_once()
+
+    # All manifest figures (covers included) become book_figure records with
+    # resolved absolute paths and chapter mapping.
+    records = wired.repo_insert.call_args.args[1]
+    assert wired.repo_insert.call_args.args[0] == "book_figure"
+    assert len(records) == 3
+    by_page = {r["path"]: r for r in records}
+    fig = by_page[str((dirp / "images/page_003_fig_001.png").resolve())]
+    assert fig["chapter_index"] == 1  # page 3 -> 第2章 (index 1)
+    assert fig["kind"] == "figure"
+    assert fig["caption"] is None  # captions disabled
+
+
+@pytest.mark.asyncio
+async def test_ingest_captions_only_figure_and_full_page_kinds(
+    tmp_path, wired, monkeypatch
+):
+    figures = [
+        {"path": "images/cover_001.png", "page": 1, "kind": "cover"},
+        {"path": "images/page_002_fig_001.png", "page": 2, "kind": "figure"},
+        {"path": "images/page_003_full.png", "page": 3, "kind": "full_page"},
+        {"path": "images/missing.png", "page": 3, "kind": "figure"},
+    ]
+    dirp = _write_book_dir(
+        tmp_path,
+        figures=figures,
+        md_body="# 第1章\n![図](images/page_002_fig_001.png)\n本文。\n",
+    )
+    # Only figures whose file exists reach the captioner.
+    (dirp / "images/page_002_fig_001.png").write_bytes(b"x")
+    (dirp / "images/page_003_full.png").write_bytes(b"x")
+
+    captioned = []
+
+    def fake_caption(client, model, image_path):
+        captioned.append(image_path.name)
+        return "図の説明"
+
+    monkeypatch.setattr(wired.mod, "caption_figure", fake_caption)
+    monkeypatch.setattr(
+        "anthropic.Anthropic", MagicMock(), raising=False
+    )
+
+    await ingest(dirp, None, "本", captions=True, caption_model="m")
+
+    assert captioned == ["page_002_fig_001.png", "page_003_full.png"]
+    # The captioned image link in the md became a spoken marker on the Source.
+    source_kwargs = wired.mod.Source.call_args.kwargs
+    assert "【図: 図の説明】" in source_kwargs["full_text"]
+    assert "![" not in source_kwargs["full_text"]

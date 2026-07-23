@@ -76,6 +76,22 @@ def caption_figure(client, model: str, image_path: Path) -> "str | None":
         return None
 
 
+def rewrite_markdown_for_audio(md: str, figure_captions: dict) -> str:
+    """Replace image links with 【図: caption】 markers (or strip uncaptioned).
+
+    The audiobook narrator can't show an image; a captioned marker lets the
+    script briefing turn it into a spoken description instead.
+    """
+
+    def replace_image_link(match: re.Match) -> str:
+        target = match.group(1).strip()
+        cap = figure_captions.get(target)
+        return f"【図: {cap}】" if cap else ""
+
+    # `![alt](images/...)` -> caption marker (or stripped when uncaptioned)
+    return re.sub(r"!\[[^\]]*\]\(([^)]+)\)\n?", replace_image_link, md)
+
+
 def chapter_index_for_page(chapters: list, page: int) -> "int | None":
     """Map a 1-based page number to the 0-based index of its chapter."""
     idx = None
@@ -127,13 +143,7 @@ async def ingest(
             logger.info(f"  [{i}/{len(to_caption)}] {fig['path']}: "
                         f"{(cap or 'no caption')[:60]}")
 
-    def replace_image_link(match: re.Match) -> str:
-        target = match.group(1).strip()
-        cap = figure_captions.get(target)
-        return f"【図: {cap}】" if cap else ""
-
-    # `![alt](images/...)` -> caption marker (or stripped when uncaptioned)
-    md_for_audio = re.sub(r"!\[[^\]]*\]\(([^)]+)\)\n?", replace_image_link, md)
+    md_for_audio = rewrite_markdown_for_audio(md, figure_captions)
 
     # --- 2. Notebook + Source (in-process; no raw-text HTTP API exists) ---
     notebook = Notebook(name=book_title, description=f"書籍『{book_title}』の取り込み")
