@@ -79,11 +79,13 @@ async def run_converter(pdf: Path, out_dir: Path) -> None:
         "markdown",
         str(pdf),
         "-o",
-        str(out_dir),
+        str(out_dir.resolve()),
         "--generate-metadata",
         "--gpu",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        # YomiToku venv (ai_bridge/ai_venv) はコンバータの CWD 相対で発見される
+        cwd=str(SUPERBOOK_DIR.resolve()),
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), CONVERT_TIMEOUT_SECONDS)

@@ -159,9 +159,12 @@ async def convert_pdf(pdf: Path, out_dir: Path, sem: asyncio.Semaphore) -> bool:
             return True
         log(f"変換開始: {pdf.stem}")
         proc = await asyncio.create_subprocess_exec(
-            str(CONVERTER), "markdown", str(pdf), "-o", str(out_dir),
+            str(CONVERTER), "markdown", str(pdf.resolve()), "-o", str(out_dir.resolve()),
             "--generate-metadata", "--gpu",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            # YomiToku venv (ai_bridge/ai_venv) はコンバータの CWD 相対で発見される。
+            # CWD を合わせないと無OCRフォールバックで全ページ画像の md が出る（実測）
+            cwd=str(CONVERTER.parent.parent.parent),
         )
         out, _ = await proc.communicate()
         if proc.returncode != 0:
@@ -292,36 +295,34 @@ async def main() -> None:
             continue
         targets.append((pdf, title, BOOKS_DIR / safe_dir_name(title)))
 
-    # 変換（並列2）
+    # 本ごとの連続パイプライン: 変換(GPU)→取り込み(vision/埋め込みAPI)→生成(LLM/TTS API)。
+    # フェーズを跨いで資源が重なるため、フェーズ直列より数時間速い。
     conv_sem = asyncio.Semaphore(CONVERT_PARALLEL)
-    conv_results = await asyncio.gather(
-        *(convert_pdf(pdf, out_dir, conv_sem) for pdf, _, out_dir in targets)
-    )
-    converted = [t for t, ok in zip(targets, conv_results) if ok]
-
-    # 取り込み（並列2）
     ing_sem = asyncio.Semaphore(INGEST_PARALLEL)
-    source_ids = await asyncio.gather(
-        *(ingest_book_dir(out_dir, pdf, title, ing_sem)
-          for pdf, title, out_dir in converted)
+    gen_sem = asyncio.Semaphore(GENERATE_PARALLEL)
+
+    async def book_pipeline(pdf: Path, title: str, out_dir: Path) -> dict:
+        if not await convert_pdf(pdf, out_dir, conv_sem):
+            return {"title": title, "status": "convert_failed"}
+        source_id = await ingest_book_dir(out_dir, pdf, title, ing_sem)
+        if not source_id:
+            return {"title": title, "status": "ingest_failed"}
+        if args.no_audiobooks:
+            return {"title": title, "status": "ingested", "source_id": source_id}
+        return await generate_audiobook(title, source_id, gen_sem)
+
+    results = await asyncio.gather(
+        *(book_pipeline(pdf, title, out_dir) for pdf, title, out_dir in targets)
     )
-    ingested = [
-        (title, sid) for (_, title, _), sid in zip(converted, source_ids) if sid
-    ]
 
     report: dict = {
         "zips": [z.name for z in zips],
         "pdfs": len(pdfs),
-        "converted": len(converted),
-        "ingested": [t for t, _ in ingested],
-        "generation": [],
+        "skipped_existing": len(pdfs) - len(targets),
+        "results": list(results),
+        "generation_done": sum(1 for r in results if r.get("status") == "done"),
+        "failed": [r for r in results if "failed" in str(r.get("status"))],
     }
-
-    if not args.no_audiobooks and ingested:
-        gen_sem = asyncio.Semaphore(GENERATE_PARALLEL)
-        report["generation"] = await asyncio.gather(
-            *(generate_audiobook(title, sid, gen_sem) for title, sid in ingested)
-        )
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2))
