@@ -1,0 +1,15 @@
+-- Migration 30: quality engineering data (Book Navigator, ADVANCED_ROADMAP §4).
+-- quality_event: gate/refusal verdicts from the generation loop and the
+-- ask/mentor Self-RAG branches — the calibration data for thresholds and the
+-- future reward-model distillation (RL stage 3).
+-- episode.feedback: per-chapter 👍/👎 from the audiobook UI (human signal).
+
+DEFINE TABLE IF NOT EXISTS quality_event SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS created ON quality_event DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS kind ON quality_event TYPE string ASSERT $value IN ["transcript_gate", "ask_refusal", "mentor_low_evidence"];
+DEFINE FIELD IF NOT EXISTS name ON quality_event TYPE string;
+DEFINE FIELD IF NOT EXISTS score ON quality_event TYPE float;
+DEFINE FIELD IF NOT EXISTS verdict ON quality_event TYPE string;
+DEFINE FIELD IF NOT EXISTS details ON quality_event FLEXIBLE TYPE option<object>;
+
+DEFINE FIELD IF NOT EXISTS feedback ON TABLE episode TYPE option<string> ASSERT $value == NONE OR $value IN ["up", "down"];

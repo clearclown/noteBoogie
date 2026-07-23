@@ -57,31 +57,113 @@ def build_synthetic_outline(num_segments: int):
     return Outline(segments=segments[: max(1, min(num_segments, len(segments)))] if num_segments < 3 else segments)
 
 
-def _build_single_pass_graph():
-    """Compile the podcast graph WITHOUT the outline node (transcript → TTS)."""
+def _build_transcript_graph():
+    """Transcript-only graph (no outline node, no TTS) — the gate scores here."""
     from langgraph.graph import END, START, StateGraph
-    from podcast_creator.nodes import (
-        combine_audio_node,
-        generate_all_audio_node,
-        generate_transcript_node,
-        route_audio_generation,
-    )
+    from podcast_creator.nodes import generate_transcript_node
     from podcast_creator.state import PodcastState
 
     workflow = StateGraph(PodcastState)
     workflow.add_node("generate_transcript", generate_transcript_node)
+    workflow.add_edge(START, "generate_transcript")
+    workflow.add_edge("generate_transcript", END)
+    return workflow.compile()
+
+
+def _build_audio_graph():
+    """TTS + assembly graph, entered only after the transcript passes the gate."""
+    from langgraph.graph import END, START, StateGraph
+    from podcast_creator.nodes import combine_audio_node, generate_all_audio_node
+    from podcast_creator.state import PodcastState
+
+    workflow = StateGraph(PodcastState)
     workflow.add_node("generate_all_audio", generate_all_audio_node)
     workflow.add_node("combine_audio", combine_audio_node)
-    workflow.add_edge(START, "generate_transcript")
-    workflow.add_conditional_edges(
-        "generate_transcript", route_audio_generation, ["generate_all_audio"]
-    )
+    workflow.add_edge(START, "generate_all_audio")
     workflow.add_edge("generate_all_audio", "combine_audio")
     workflow.add_edge("combine_audio", END)
     return workflow.compile()
 
 
-_single_pass_graph = None
+_transcript_graph = None
+_audio_graph = None
+
+
+# ---------------------------------------------------------------------------
+# Transcript quality gate (ADVANCED_ROADMAP §4-1): score before spending TTS
+# money. Regex-based metrics — zero extra LLM cost; a retry costs exactly one
+# transcript-LLM call and only happens below threshold.
+# ---------------------------------------------------------------------------
+
+
+def gate_enabled() -> bool:
+    import os
+
+    return os.getenv("SIDECAR_GATE", "1").lower() in ("1", "true", "yes")
+
+
+def gate_threshold() -> float:
+    import os
+
+    try:
+        return float(os.getenv("SIDECAR_GATE_THRESHOLD", "0.6"))
+    except ValueError:
+        return 0.6
+
+
+def build_gate_critique(ev, threshold: float) -> str:
+    """未達指標を台本LLMへの日本語の改善指示に変換する（再生成1回で使う）。"""
+    lines = [
+        "## 品質レビュー指摘（前回の台本は品質ゲート未達。以下を必ず反映して作り直すこと）",
+        f"- 前回スコア: {ev.composite:.2f}（合格ライン {threshold:.2f}）",
+    ]
+    if ev.structure < 1.0:
+        lines.append(
+            "- 構成: 冒頭で「この章は〜という悩み/課題に答えます」と課題を提示し、"
+            "本編は「1つ目は」「2つ目は」「3つ目は」と番号を数えながら順に述べ、"
+            "最後に「アクションプラン」で締めること"
+        )
+    if ev.grounding < 0.95 and ev.unsupported_terms:
+        terms = "、".join(str(t) for t in ev.unsupported_terms[:10])
+        lines.append(
+            f"- 捏造禁止: 次の語は章本文に存在しない。使わないか、本文にある表現へ置き換えること: {terms}"
+        )
+    if ev.politeness < 0.9:
+        lines.append("- 文体: 文末は です/ます調で統一すること")
+    if ev.length_ratio < 1.0:
+        lines.append("- 分量: 台本が薄すぎる。章本文の論点を漏らさず、具体例を添えて膨らませること")
+    elif ev.length_ratio > 8.0:
+        lines.append("- 分量: 台本が本文に比して長すぎる。本文に無い話を足して水増ししないこと")
+    return "\n".join(lines)
+
+
+def gate_decision(evals: list, threshold: float) -> tuple[int, bool]:
+    """試行のうち composite 最大のものを選び、(index, 合格か) を返す。"""
+    best_index = max(range(len(evals)), key=lambda i: evals[i].composite)
+    return best_index, evals[best_index].composite >= threshold
+
+
+async def _log_quality_event(
+    kind: str, name: str, score: float, verdict: str, details: dict
+) -> None:
+    """quality_event へ判定を記録する（閾値較正・RL報酬蒸留のデータ源、best-effort）。"""
+    from open_notebook.database.repository import repo_insert
+
+    try:
+        await repo_insert(
+            "quality_event",
+            [
+                {
+                    "kind": kind,
+                    "name": name[:200],
+                    "score": round(float(score), 3),
+                    "verdict": verdict,
+                    "details": details,
+                }
+            ],
+        )
+    except Exception as e:  # noqa: BLE001 - logging must never break generation
+        logger.warning(f"quality_event insert failed: {e}")
 
 
 async def create_podcast_single_pass(
@@ -107,31 +189,37 @@ async def create_podcast_single_pass(
     from podcast_creator.speakers import load_speaker_config
     from podcast_creator.state import PodcastState
 
-    global _single_pass_graph
-    if _single_pass_graph is None:
-        _single_pass_graph = _build_single_pass_graph()
+    global _transcript_graph, _audio_graph
+    if _transcript_graph is None:
+        _transcript_graph = _build_transcript_graph()
+    if _audio_graph is None:
+        _audio_graph = _build_audio_graph()
 
     episode_config = load_episode_config(episode_profile)
     output_path = _Path(output_dir)
     output_path.mkdir(exist_ok=True, parents=True)
 
-    initial_state = PodcastState(
-        content=content,
-        briefing=briefing or episode_config.default_briefing,
-        num_segments=episode_config.num_segments or 3,
-        language=(
-            resolve_language_name(episode_config.language)
-            if episode_config.language
-            else None
-        ),
-        outline=build_synthetic_outline(episode_config.num_segments or 3),
-        transcript=[],
-        audio_clips=[],
-        final_output_file_path=None,
-        output_dir=output_path,
-        episode_name=episode_name,
-        speaker_profile=load_speaker_config(speaker_config),
-    )
+    effective_briefing = briefing or episode_config.default_briefing
+
+    def make_state(state_briefing: str) -> PodcastState:
+        return PodcastState(
+            content=content,
+            briefing=state_briefing,
+            num_segments=episode_config.num_segments or 3,
+            language=(
+                resolve_language_name(episode_config.language)
+                if episode_config.language
+                else None
+            ),
+            outline=build_synthetic_outline(episode_config.num_segments or 3),
+            transcript=[],
+            audio_clips=[],
+            final_output_file_path=None,
+            output_dir=output_path,
+            episode_name=episode_name,
+            speaker_profile=load_speaker_config(speaker_config),
+        )
+
     config = {
         "configurable": {
             "transcript_provider": episode_config.transcript_provider,
@@ -139,7 +227,71 @@ async def create_podcast_single_pass(
             "transcript_config": episode_config.transcript_config,
         }
     }
-    return await _single_pass_graph.ainvoke(initial_state, config=config)
+
+    # 段階1: transcript のみ生成し、TTS 前に採点する
+    state = await _transcript_graph.ainvoke(make_state(effective_briefing), config=config)
+
+    if gate_enabled():
+        from scripts.eval_transcript import evaluate_chapter, transcript_text
+
+        threshold = gate_threshold()
+        attempts = [state]
+        evals = [
+            evaluate_chapter(episode_name, content, transcript_text(_to_jsonable(state.get("transcript"))))
+        ]
+        if evals[0].composite < threshold:
+            critique = build_gate_critique(evals[0], threshold)
+            logger.info(
+                f"Gate: composite={evals[0].composite:.2f} < {threshold:.2f}, "
+                f"regenerating transcript once with critique"
+            )
+            retry_state = await _transcript_graph.ainvoke(
+                make_state(f"{effective_briefing}\n\n{critique}"), config=config
+            )
+            attempts.append(retry_state)
+            evals.append(
+                evaluate_chapter(
+                    episode_name,
+                    content,
+                    transcript_text(_to_jsonable(retry_state.get("transcript"))),
+                )
+            )
+        best_index, passed = gate_decision(evals, threshold)
+        best_eval = evals[best_index]
+        verdict = (
+            "passed"
+            if passed and len(evals) == 1
+            else "retried_passed"
+            if passed
+            else "rejected"
+        )
+        await _log_quality_event(
+            kind="transcript_gate",
+            name=episode_name,
+            score=best_eval.composite,
+            verdict=verdict,
+            details={
+                "threshold": threshold,
+                "attempts": [e.composite for e in evals],
+                "structure": best_eval.structure,
+                "grounding": best_eval.grounding,
+                "politeness": best_eval.politeness,
+                "length_ratio": best_eval.length_ratio,
+                "unsupported_terms": best_eval.unsupported_terms[:10],
+            },
+        )
+        if not passed:
+            # ValueError → gRPC INVALID_ARGUMENT → gateway が generation_error に記録
+            raise ValueError(
+                f"品質ゲート未達: composite={best_eval.composite:.2f} "
+                f"(閾値 {threshold:.2f}, 再生成1回込み)。"
+                f"構成{best_eval.structure:.2f}/グラウンディング{best_eval.grounding:.2f}/"
+                f"敬体{best_eval.politeness:.2f}/長さ比{best_eval.length_ratio}"
+            )
+        state = attempts[best_index]
+
+    # 段階2: 合格した transcript だけに TTS 費用をかける
+    return await _audio_graph.ainvoke(state, config=config)
 
 
 @dataclass

@@ -313,15 +313,191 @@ def test_synthetic_outline_encodes_the_three_part_structure():
     assert len(build_synthetic_outline(0).segments) == 1
 
 
-def test_single_pass_graph_has_no_outline_node():
-    from sidecar.podcast_runner import _build_single_pass_graph
+def test_split_graphs_have_no_outline_node():
+    from sidecar.podcast_runner import _build_audio_graph, _build_transcript_graph
 
-    graph = _build_single_pass_graph()
-    nodes = set(graph.get_graph().nodes)
-    assert "generate_transcript" in nodes
-    assert "generate_all_audio" in nodes
-    assert "combine_audio" in nodes
-    assert "generate_outline" not in nodes
+    transcript_nodes = set(_build_transcript_graph().get_graph().nodes)
+    audio_nodes = set(_build_audio_graph().get_graph().nodes)
+    assert "generate_transcript" in transcript_nodes
+    assert "generate_all_audio" not in transcript_nodes  # TTS はゲート通過後のみ
+    assert {"generate_all_audio", "combine_audio"} <= audio_nodes
+    assert "generate_outline" not in transcript_nodes | audio_nodes
+
+
+# ---------------------------------------------------------------------------
+# Transcript quality gate (score before TTS)
+# ---------------------------------------------------------------------------
+
+GOOD_TRANSCRIPT = (
+    "この章は仮説思考が身につかないという悩みに答えます。"
+    "1つ目は仮説思考です。仮説思考とは結論から考える技術です。"
+    "2つ目は論点思考です。論点思考で問いを絞ります。"
+    "3つ目はイシュー分析です。イシューを分解して検証します。"
+    "最後にアクションプランです。明日から仮説思考を実践してみてください。"
+) * 3
+
+BAD_TRANSCRIPT = "量子コンピュータとブロックチェーンの話だ。以上。"
+
+CHAPTER_CONTENT = (
+    "仮説思考とは結論から考える技術である。論点思考は問いを絞る技術。"
+    "イシュー分析はイシューを分解して検証する。実践が重要だ。"
+) * 4
+
+
+def test_gate_env_defaults(monkeypatch):
+    from sidecar import podcast_runner as pr
+
+    monkeypatch.delenv("SIDECAR_GATE", raising=False)
+    monkeypatch.delenv("SIDECAR_GATE_THRESHOLD", raising=False)
+    assert pr.gate_enabled() is True
+    assert pr.gate_threshold() == 0.6
+    monkeypatch.setenv("SIDECAR_GATE", "0")
+    monkeypatch.setenv("SIDECAR_GATE_THRESHOLD", "0.8")
+    assert pr.gate_enabled() is False
+    assert pr.gate_threshold() == 0.8
+    monkeypatch.setenv("SIDECAR_GATE_THRESHOLD", "garbage")
+    assert pr.gate_threshold() == 0.6
+
+
+def test_gate_decision_picks_best_attempt():
+    from scripts.eval_transcript import evaluate_chapter
+    from sidecar.podcast_runner import gate_decision
+
+    bad = evaluate_chapter("ch", CHAPTER_CONTENT, BAD_TRANSCRIPT)
+    good = evaluate_chapter("ch", CHAPTER_CONTENT, GOOD_TRANSCRIPT)
+    index, passed = gate_decision([bad, good], threshold=0.6)
+    assert index == 1 and passed is True
+    index, passed = gate_decision([bad], threshold=0.6)
+    assert index == 0 and passed is False
+
+
+def test_gate_critique_names_the_failures():
+    from scripts.eval_transcript import evaluate_chapter
+    from sidecar.podcast_runner import build_gate_critique
+
+    ev = evaluate_chapter("ch", CHAPTER_CONTENT, BAD_TRANSCRIPT)
+    critique = build_gate_critique(ev, threshold=0.6)
+    assert "品質レビュー指摘" in critique
+    assert "1つ目" in critique  # structure guidance
+    assert "章本文に存在しない" in critique  # grounding guidance
+    assert "です/ます" in critique  # politeness guidance
+
+
+def _gate_test_setup(monkeypatch, tmp_path, transcripts):
+    """create_podcast_single_pass をグラフ・profile 読込をモックして駆動する。
+
+    transcripts: transcript グラフ呼び出しごとに返す台本のリスト。
+    戻り値: (podcast_runner, transcript_mock, audio_mock, logged_events)
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sidecar import podcast_runner as pr
+
+    calls = {"i": 0}
+
+    async def fake_transcript_ainvoke(state, config=None):
+        text = transcripts[min(calls["i"], len(transcripts) - 1)]
+        calls["i"] += 1
+        return {**dict(state), "transcript": [{"speaker": "m", "dialogue": text}]}
+
+    async def fake_audio_ainvoke(state, config=None):
+        return {**dict(state), "final_output_file_path": str(tmp_path / "out.mp3")}
+
+    transcript_graph = MagicMock()
+    transcript_graph.ainvoke = AsyncMock(side_effect=fake_transcript_ainvoke)
+    audio_graph = MagicMock()
+    audio_graph.ainvoke = AsyncMock(side_effect=fake_audio_ainvoke)
+    monkeypatch.setattr(pr, "_transcript_graph", transcript_graph)
+    monkeypatch.setattr(pr, "_audio_graph", audio_graph)
+
+    episode_config = MagicMock()
+    episode_config.default_briefing = "既定ブリーフィング"
+    episode_config.num_segments = 3
+    episode_config.language = None
+    episode_config.transcript_provider = "anthropic"
+    episode_config.transcript_model = "m"
+    episode_config.transcript_config = {}
+    import podcast_creator.episodes as episodes_mod
+    import podcast_creator.speakers as speakers_mod
+
+    monkeypatch.setattr(episodes_mod, "load_episode_config", lambda name: episode_config)
+    monkeypatch.setattr(speakers_mod, "load_speaker_config", lambda name: MagicMock())
+
+    events = []
+
+    async def capture_event(**kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr(pr, "_log_quality_event", capture_event)
+    return pr, transcript_graph, audio_graph, events
+
+
+@pytest.mark.asyncio
+async def test_gate_passes_good_transcript_first_try(monkeypatch, tmp_path):
+    pr, transcript_graph, audio_graph, events = _gate_test_setup(
+        monkeypatch, tmp_path, [GOOD_TRANSCRIPT]
+    )
+    monkeypatch.delenv("SIDECAR_GATE", raising=False)
+    result = await pr.create_podcast_single_pass(
+        content=CHAPTER_CONTENT, briefing="b", episode_name="第1章",
+        output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
+    )
+    assert result["final_output_file_path"].endswith("out.mp3")
+    assert transcript_graph.ainvoke.await_count == 1  # no retry
+    assert audio_graph.ainvoke.await_count == 1
+    assert events[0]["verdict"] == "passed"
+    assert events[0]["kind"] == "transcript_gate"
+
+
+@pytest.mark.asyncio
+async def test_gate_retries_once_with_critique_then_passes(monkeypatch, tmp_path):
+    pr, transcript_graph, audio_graph, events = _gate_test_setup(
+        monkeypatch, tmp_path, [BAD_TRANSCRIPT, GOOD_TRANSCRIPT]
+    )
+    monkeypatch.delenv("SIDECAR_GATE", raising=False)
+    await pr.create_podcast_single_pass(
+        content=CHAPTER_CONTENT, briefing="b", episode_name="第1章",
+        output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
+    )
+    assert transcript_graph.ainvoke.await_count == 2
+    # 2回目の呼び出しは批評が briefing に追記されている
+    retry_state = transcript_graph.ainvoke.await_args_list[1].args[0]
+    assert "品質レビュー指摘" in retry_state["briefing"]
+    assert events[0]["verdict"] == "retried_passed"
+    # 採用されたのは良い方の台本
+    audio_state = audio_graph.ainvoke.await_args_list[0].args[0]
+    assert "1つ目" in audio_state["transcript"][0]["dialogue"]
+
+
+@pytest.mark.asyncio
+async def test_gate_rejects_after_failed_retry(monkeypatch, tmp_path):
+    pr, transcript_graph, audio_graph, events = _gate_test_setup(
+        monkeypatch, tmp_path, [BAD_TRANSCRIPT, BAD_TRANSCRIPT]
+    )
+    monkeypatch.delenv("SIDECAR_GATE", raising=False)
+    with pytest.raises(ValueError, match="品質ゲート未達"):
+        await pr.create_podcast_single_pass(
+            content=CHAPTER_CONTENT, briefing="b", episode_name="第1章",
+            output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
+        )
+    audio_graph.ainvoke.assert_not_awaited()  # TTS 費用をかけない
+    assert events[0]["verdict"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_gate_disabled_skips_scoring(monkeypatch, tmp_path):
+    pr, transcript_graph, audio_graph, events = _gate_test_setup(
+        monkeypatch, tmp_path, [BAD_TRANSCRIPT]
+    )
+    monkeypatch.setenv("SIDECAR_GATE", "0")
+    result = await pr.create_podcast_single_pass(
+        content=CHAPTER_CONTENT, briefing="b", episode_name="第1章",
+        output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
+    )
+    assert result["final_output_file_path"].endswith("out.mp3")
+    assert events == []  # 採点なし
+    assert transcript_graph.ainvoke.await_count == 1
+    assert audio_graph.ainvoke.await_count == 1
 
 
 @pytest.mark.asyncio

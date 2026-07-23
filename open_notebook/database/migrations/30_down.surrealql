@@ -1,0 +1,2 @@
+REMOVE TABLE IF EXISTS quality_event;
+REMOVE FIELD IF EXISTS feedback ON TABLE episode;

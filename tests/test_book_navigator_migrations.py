@@ -79,3 +79,29 @@ class TestRegistration:
             if p.stem.isdigit()
         )
         assert numbers == list(range(1, numbers[-1] + 1))
+
+
+class TestMigration30:
+    def test_files_exist_and_registered(self):
+        assert (MIGRATIONS / "30.surrealql").exists()
+        assert (MIGRATIONS / "30_down.surrealql").exists()
+        src = (MIGRATIONS.parent / "async_migrate.py").read_text()
+        for name in ("30.surrealql", "30_down.surrealql"):
+            assert f"migrations/{name}" in src, f"{name} not registered"
+
+    def test_quality_event_schema(self):
+        sql = read("30.surrealql")
+        assert "DEFINE TABLE IF NOT EXISTS quality_event" in sql
+        for kind in ("transcript_gate", "ask_refusal", "mentor_low_evidence"):
+            assert kind in sql
+        assert "FLEXIBLE TYPE option<object>" in sql  # details evolves with prompts
+
+    def test_episode_feedback_field(self):
+        sql = read("30.surrealql")
+        assert "feedback ON TABLE episode" in sql
+        assert '"up", "down"' in sql
+
+    def test_down_reverses_both(self):
+        sql = read("30_down.surrealql")
+        assert "REMOVE TABLE IF EXISTS quality_event" in sql
+        assert "REMOVE FIELD IF EXISTS feedback ON TABLE episode" in sql
