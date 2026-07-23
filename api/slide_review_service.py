@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from open_notebook.exceptions import (
     ExternalServiceError,
     InvalidInputError,
+    NotFoundError,
 )
 
 SLIDE_REVIEW_DIR = Path(os.getenv("DATA_FOLDER", "./data")) / "slide_reviews"
@@ -44,6 +45,7 @@ AXIS_NAMES_JA = {
 
 
 class SlideIssue(BaseModel):
+    id: Optional[str] = None
     page: int = 1
     text: str
     fix: Optional[str] = None
@@ -216,6 +218,20 @@ async def ground_citations(query: str, limit: int = 3) -> List[SlideCitation]:
         return []
 
 
+async def run_text_review(text_dump: str, prompt: str) -> str:
+    """pptx のテキスト構造ダンプをルーブリックでレビューする（vision不要）。"""
+    from open_notebook.ai.provision import provision_langchain_model
+
+    full = f"{prompt}\n\n## レビュー対象（pptx から抽出したテキスト）\n{text_dump}"
+    model = await provision_langchain_model(full, None, "chat", max_tokens=4000)
+    response = await model.ainvoke(full)
+
+    from open_notebook.utils import clean_thinking_content
+    from open_notebook.utils.text_utils import extract_text_content
+
+    return clean_thinking_content(extract_text_content(response.content))
+
+
 async def run_vision_review(images: List[tuple[bytes, str]], prompt: str) -> str:
     """画像列 + ルーブリックを default chat model（vision）に投げる。"""
     from langchain_core.messages import HumanMessage
@@ -239,6 +255,23 @@ async def run_vision_review(images: List[tuple[bytes, str]], prompt: str) -> str
     return clean_thinking_content(extract_text_content(response.content))
 
 
+def _safe_stem(filename: str) -> str:
+    stem = Path(filename or "slides").stem
+    safe = re.sub(r"[^\w\-一-龠ぁ-んァ-ヶー]", "_", stem)
+    return safe or "slides"
+
+
+def _store_original(filename: str, data: bytes) -> str:
+    """pptx 原本を保存し、後から修正適用できるようにする（uuid ディレクトリ）。"""
+    import uuid
+
+    directory = SLIDE_REVIEW_DIR / uuid.uuid4().hex
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{_safe_stem(filename)}.pptx"
+    path.write_bytes(data)
+    return str(path)
+
+
 class SlideReviewService:
     @staticmethod
     async def review(filename: str, data: bytes) -> SlideReviewResponse:
@@ -251,16 +284,31 @@ class SlideReviewService:
         if kind == "image":
             media_type = IMAGE_EXTENSIONS[Path(filename).suffix.lower()]
             images = [(data, media_type)]
+            page_count = 1
         elif kind == "pdf":
             pages = rasterize_pdf(data)
             if not pages:
                 raise InvalidInputError("PDF has no pages")
             images = [(page, "image/png") for page in pages]
-        else:  # pptx — C4 で構造解析を追加
-            raise InvalidInputError("pptx review is not available yet")
+            page_count = len(images)
+        else:  # pptx: 構造解析 lint + テキストレビュー（§11b、修正適用のため原本保存）
+            from api.pptx_coach import build_text_dump, extract_pptx, lint_pptx
 
-        prompt = build_review_prompt(len(images))
-        raw_text = await run_vision_review(images, prompt)
+            extract = extract_pptx(data)
+            page_count = max(1, int(extract["slide_count"]))
+            extra_issues = {
+                axis: [SlideIssue(**issue) for issue in issue_list]
+                for axis, issue_list in lint_pptx(extract).items()
+            }
+            stored_path = _store_original(filename, data)
+            images = []
+            text_dump = build_text_dump(extract)
+
+        prompt = build_review_prompt(page_count)
+        if kind == "pptx":
+            raw_text = await run_text_review(text_dump, prompt)
+        else:
+            raw_text = await run_vision_review(images, prompt)
         parsed = parse_review_json(raw_text)
 
         axes = build_axes(parsed.get("axes") or [], extra_issues=extra_issues)
@@ -272,7 +320,7 @@ class SlideReviewService:
         review = SlideReviewResponse(
             filename=filename,
             kind=kind,
-            page_count=len(images),
+            page_count=page_count,
             overall=overall,
             passed=passed,
             threshold=GATE_THRESHOLD,
@@ -305,6 +353,55 @@ class SlideReviewService:
             logger.warning(f"slide review persistence failed: {e}")
 
         return review
+
+    @staticmethod
+    async def apply(review_id: str, issue_ids: List[str]) -> Path:
+        """選択された適用可能 issue を pptx 原本に適用し、_coached.pptx を返す。
+
+        非破壊: 原本は保持し、修正版を同ディレクトリに新規生成する。
+        """
+        from api.pptx_coach import apply_fixes
+        from open_notebook.database.repository import repo_query
+
+        if not review_id.startswith("slide_review:"):
+            raise InvalidInputError(f"Not a slide review id: {review_id}")
+        if not issue_ids:
+            raise InvalidInputError("No issues selected")
+
+        rows = await repo_query(
+            "SELECT axes, stored_path, kind FROM slide_review WHERE id = type::thing($id)",
+            {"id": review_id},
+        )
+        if not rows:
+            raise NotFoundError(f"Slide review not found: {review_id}")
+        row = rows[0]
+        stored_path = row.get("stored_path")
+        if row.get("kind") != "pptx" or not stored_path:
+            raise InvalidInputError("Fix application is only available for pptx reviews")
+        original = Path(stored_path)
+        if not original.exists():
+            raise NotFoundError("Original pptx no longer exists on disk")
+
+        # 保存済み issue のうち、選択され、かつ適用可能なものだけ
+        selected = set(issue_ids)
+        rules_by_page: Dict[str, List[int]] = {}
+        for axis in row.get("axes") or []:
+            for issue in axis.get("issues") or []:
+                if (
+                    issue.get("applicable")
+                    and issue.get("rule")
+                    and issue.get("id") in selected
+                ):
+                    rules_by_page.setdefault(str(issue["rule"]), []).append(
+                        int(issue.get("page", 1))
+                    )
+        if not rules_by_page:
+            raise InvalidInputError("Selected issues are not auto-applicable")
+
+        coached_bytes = apply_fixes(original.read_bytes(), rules_by_page)
+        coached = original.with_name(f"{original.stem}_coached.pptx")
+        coached.write_bytes(coached_bytes)
+        return coached
 
     @staticmethod
     async def list_reviews(limit: int = 20) -> List[SlideReviewResponse]:

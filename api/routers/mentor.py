@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from api.mentor_service import (
     MentorConsultRequest,
@@ -74,3 +75,18 @@ async def review_slides(file: UploadFile = File(...)):
 async def list_slide_reviews(limit: int = Query(default=20, ge=1, le=100)):
     """過去のスライドレビュー一覧（改善差分の確認用）。"""
     return await slide_review_service.list_reviews(limit)
+
+
+class ApplyFixesRequest(BaseModel):
+    issue_ids: List[str]
+
+
+@router.post("/mentor/slide-review/{review_id}/apply")
+async def apply_slide_fixes(review_id: str, request: ApplyFixesRequest):
+    """選択した指摘を pptx に適用し、修正版（_coached.pptx）をダウンロードさせる。"""
+    path = await slide_review_service.apply(review_id, request.issue_ids)
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=path.name,
+    )
