@@ -1,0 +1,10 @@
+-- Migration 27: mentor memory (Book Navigator mentor/coach feature).
+-- Long-term memory for the mentor graph: one row per consultation exchange,
+-- recalled into the persona prompt so the mentor remembers past discussions
+-- ("先週の資料の件はどうなった?").
+
+DEFINE TABLE IF NOT EXISTS mentor_memory SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS created ON mentor_memory DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS question ON mentor_memory TYPE string;
+DEFINE FIELD IF NOT EXISTS gist ON mentor_memory TYPE string;
+DEFINE FIELD IF NOT EXISTS sources ON mentor_memory TYPE option<array<string>>;

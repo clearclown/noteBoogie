@@ -93,4 +93,4 @@ def test_all_four_tools_are_registered():
 
     tools = asyncio.run(srv.mcp.list_tools())
     names = {t.name for t in tools}
-    assert names == {"list_books", "search_books", "ask_book", "list_figures"}
+    assert names == {"list_books", "search_books", "ask_book", "consult_mentor", "list_figures"}

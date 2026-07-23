@@ -15,6 +15,7 @@ Tools:
     list_books()                     蔵書一覧（Source）
     search_books(query, limit)       意味検索（チャンク+出典）
     ask_book(question)               検索+統合回答（引用付き、LLM使用）
+    consult_mentor(message)          師匠AIとの壁打ち（記憶+蔵書RAG、LLM使用）
     list_figures(source_id)          図・グラフのキャプション一覧
 """
 
@@ -95,6 +96,19 @@ async def do_ask_book(question: str) -> str:
     return result.get("final_answer") or "(no answer)"
 
 
+async def do_consult_mentor(message: str) -> str:
+    from open_notebook.ai.models import DefaultModels
+    from open_notebook.graphs.mentor import graph as mentor_graph
+
+    defaults = await DefaultModels.get_instance()
+    model_id = getattr(defaults, "default_chat_model", None)
+    result = await mentor_graph.ainvoke(  # type: ignore[call-overload]
+        {"message": message},
+        config={"configurable": {"mentor_model": str(model_id) if model_id else None}},
+    )
+    return result.get("answer") or "(no answer)"
+
+
 async def do_list_figures(source_id: str) -> list[dict[str, Any]]:
     from open_notebook.database.repository import repo_query
 
@@ -129,6 +143,15 @@ async def ask_book(question: str) -> str:
     回答には [source:...] 形式の出典が含まれる。
     """
     return await do_ask_book(question)
+
+
+@mcp.tool()
+async def consult_mentor(message: str) -> str:
+    """蔵書を読み込んだ「コンサルの師匠」に相談する（壁打ち・資料相談・キャリア相談）。
+
+    過去の相談を記憶しており、蔵書に根拠がある助言は出典付きで返す。
+    """
+    return await do_consult_mentor(message)
 
 
 @mcp.tool()

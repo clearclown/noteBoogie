@@ -110,7 +110,29 @@ make set-book-models TTS_PROVIDER=openai_compatible TTS=kokoro
 
 以後のオーディオブック生成は TTS 費用ゼロ（品質・読み仮名精度はクラウド比で低下します。日本語特化なら VOICEVOX / AivisSpeech + OpenAI互換ブリッジも同じ方式で接続可能）。台本 LLM も `PROVIDER=ollama LLM=モデル名` でローカル化でき、**完全オフライン生成**構成になります。
 
-## 8. 品質評価とプロンプト最適化
+## 8. メンターAI（師匠との壁打ち）
+
+蔵書を読み込んだ「コンサルの師匠」に、資料作成・仕事の進め方・キャリアを相談できます。
+過去の相談を記憶（`mentor_memory`）しており、蔵書に根拠がある助言は『本のタイトル』付きで返します。
+
+MCP 経由（Claude Code / Desktop）:
+
+```
+consult_mentor("クライアント初回提案の構成を壁打ちしたい。今の案は会社紹介→実績→提案→価格")
+```
+
+スクリプト直呼びも可能:
+
+```python
+from open_notebook.graphs.mentor import graph
+result = await graph.ainvoke({"message": "相談内容"},
+    config={"configurable": {"mentor_model": "model:xxxx"}})
+```
+
+構成: recall（記憶 + 蔵書横断ベクトル検索）→ respond（師匠ペルソナ）→ memorize（要点を長期記憶へ）。
+発展（複数ペルソナ・記憶の構造化・フロントUI）は ADVANCED_ROADMAP.md 参照。
+
+## 9. 品質評価とプロンプト最適化
 
 ```bash
 # 台本の自動採点（構成遵守 / 捏造リスク / 敬体一貫性 / 長さ）
