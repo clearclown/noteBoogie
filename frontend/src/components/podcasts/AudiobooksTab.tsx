@@ -1,0 +1,407 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowLeft,
+  Headphones,
+  Image as ImageIcon,
+  Loader2,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Trash2,
+} from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { audiobooksApi } from '@/lib/api/audiobooks'
+import { getApiUrl } from '@/lib/config'
+import {
+  AUDIOBOOK_QUERY_KEYS,
+  useAudiobook,
+  useAudiobookFigures,
+  useAudiobooks,
+} from '@/lib/hooks/use-audiobooks'
+import { useTranslation } from '@/lib/hooks/use-translation'
+import { AudiobookChapter } from '@/lib/types/audiobooks'
+import { useQueryClient } from '@tanstack/react-query'
+
+/** Fetch a chapter's protected audio as an object URL (same auth pattern as EpisodeCard). */
+async function fetchChapterAudio(chapterId: string): Promise<string> {
+  const base = await getApiUrl()
+  let token: string | undefined
+  if (typeof window !== 'undefined') {
+    const raw = window.localStorage.getItem('auth-storage')
+    if (raw) {
+      try {
+        token = JSON.parse(raw)?.state?.token
+      } catch {
+        // ignore parse errors; request proceeds unauthenticated
+      }
+    }
+  }
+  const headers: HeadersInit = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  const response = await fetch(
+    `${base}/api/podcasts/episodes/${encodeURIComponent(chapterId)}/audio`,
+    { headers }
+  )
+  if (!response.ok) {
+    throw new Error(`Audio request failed with status ${response.status}`)
+  }
+  return URL.createObjectURL(await response.blob())
+}
+
+function AudiobookDetailView({
+  audiobookId,
+  onBack,
+}: {
+  audiobookId: string
+  onBack: () => void
+}) {
+  const { t } = useTranslation()
+  const { data: detail, isLoading } = useAudiobook(audiobookId)
+  const { data: figures } = useAudiobookFigures(audiobookId)
+
+  const [currentIndex, setCurrentIndex] = useState<number | null>(null)
+  const [autoAdvance, setAutoAdvance] = useState(true)
+  const [audioSrc, setAudioSrc] = useState<string | undefined>()
+  const [audioError, setAudioError] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const chapters = useMemo(() => detail?.chapters ?? [], [detail])
+  const playable = useCallback(
+    (index: number | null) =>
+      index !== null && Boolean(chapters[index]?.audio_file && chapters[index]?.id),
+    [chapters]
+  )
+
+  // Load the selected chapter's audio blob.
+  useEffect(() => {
+    let revokeUrl: string | undefined
+    setAudioError(false)
+    setAudioSrc(undefined)
+    if (!playable(currentIndex)) {
+      return
+    }
+    const chapter = chapters[currentIndex as number]
+    fetchChapterAudio(chapter.id as string)
+      .then((url) => {
+        revokeUrl = url
+        setAudioSrc(url)
+      })
+      .catch((error) => {
+        console.error('Unable to load chapter audio', error)
+        setAudioError(true)
+      })
+    return () => {
+      if (revokeUrl) {
+        URL.revokeObjectURL(revokeUrl)
+      }
+    }
+  }, [currentIndex, chapters, playable])
+
+  // Autoplay once the blob is ready (also drives auto-advance).
+  useEffect(() => {
+    if (audioSrc && audioRef.current) {
+      void audioRef.current.play().catch(() => setPlaying(false))
+    }
+  }, [audioSrc])
+
+  const advance = useCallback(
+    (step: number) => {
+      if (currentIndex === null) {
+        return
+      }
+      let next = currentIndex + step
+      while (next >= 0 && next < chapters.length && !playable(next)) {
+        next += step
+      }
+      if (next >= 0 && next < chapters.length) {
+        setCurrentIndex(next)
+      }
+    },
+    [chapters.length, currentIndex, playable]
+  )
+
+  const handleEnded = () => {
+    setPlaying(false)
+    if (autoAdvance) {
+      advance(1)
+    }
+  }
+
+  const togglePlay = () => {
+    const el = audioRef.current
+    if (!el) {
+      return
+    }
+    if (el.paused) {
+      void el.play()
+    } else {
+      el.pause()
+    }
+  }
+
+  const figuresByChapter = useMemo(() => {
+    const groups = new Map<number | null, NonNullable<typeof figures>>()
+    for (const figure of figures ?? []) {
+      const key = figure.chapter_index
+      const bucket = groups.get(key) ?? []
+      bucket.push(figure)
+      groups.set(key, bucket)
+    }
+    return groups
+  }, [figures])
+
+  const currentChapter: AudiobookChapter | undefined =
+    currentIndex !== null ? chapters[currentIndex] : undefined
+  const currentFigures =
+    (currentChapter ? figuresByChapter.get(currentChapter.chapter_index) : undefined) ?? []
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <h2 className="text-lg font-semibold">{detail?.name}</h2>
+        <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+          <Checkbox
+            checked={autoAdvance}
+            onCheckedChange={(checked) => setAutoAdvance(checked === true)}
+          />
+          <span>{t('podcasts.audiobookAutoAdvance')}</span>
+        </label>
+      </div>
+
+      {/* Player */}
+      <Card>
+        <CardContent className="pt-6 space-y-3">
+          <div className="flex items-center justify-center gap-4">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => advance(-1)}
+              disabled={currentIndex === null}
+              aria-label={t('podcasts.audiobookPrevChapter')}
+            >
+              <SkipBack className="h-5 w-5" />
+            </Button>
+            <Button
+              size="icon"
+              className="h-14 w-14 rounded-full"
+              onClick={togglePlay}
+              disabled={!audioSrc}
+              aria-label={playing ? t('podcasts.audiobookPause') : t('podcasts.audiobookPlay')}
+            >
+              {playing ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => advance(1)}
+              disabled={currentIndex === null}
+              aria-label={t('podcasts.audiobookNextChapter')}
+            >
+              <SkipForward className="h-5 w-5" />
+            </Button>
+          </div>
+          <p className="text-center text-sm text-muted-foreground min-h-5">
+            {audioError
+              ? t('podcasts.audioUnavailable')
+              : currentChapter?.name ?? t('podcasts.audiobookSelectChapter')}
+          </p>
+          {audioSrc ? (
+            <audio
+              ref={audioRef}
+              src={audioSrc}
+              controls
+              className="w-full"
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={handleEnded}
+            />
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Tracklist */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t('podcasts.audiobookChapters')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1">
+          {chapters.map((chapter, index) => {
+            const ready = Boolean(chapter.audio_file)
+            const active = index === currentIndex
+            return (
+              <button
+                key={chapter.id ?? index}
+                type="button"
+                onClick={() => ready && setCurrentIndex(index)}
+                disabled={!ready}
+                className={`w-full flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                  active
+                    ? 'bg-primary/10 text-primary'
+                    : ready
+                      ? 'hover:bg-muted'
+                      : 'opacity-50 cursor-not-allowed'
+                }`}
+              >
+                <span className="w-6 text-center font-mono text-xs text-muted-foreground">
+                  {(chapter.chapter_index ?? index) + 1}
+                </span>
+                <span className="flex-1 truncate">{chapter.name}</span>
+                {ready ? (
+                  active && playing ? (
+                    <Headphones className="h-4 w-4 shrink-0" />
+                  ) : null
+                ) : (
+                  <Badge variant="outline" className="shrink-0">
+                    {t('podcasts.audiobookAudioPending')}
+                  </Badge>
+                )}
+              </button>
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      {/* Figure gallery for the playing chapter (falls back to all figures) */}
+      {(figures?.length ?? 0) > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ImageIcon className="h-4 w-4" />
+              {t('podcasts.audiobookFigures')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(currentFigures.length > 0 ? currentFigures : (figures ?? [])).map(
+                (figure) =>
+                  figure.id ? (
+                    <figure key={figure.id} className="space-y-1">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={audiobooksApi.figureImageUrl(figure.id)}
+                        alt={figure.caption ?? ''}
+                        loading="lazy"
+                        className="w-full rounded-md border object-contain bg-muted"
+                      />
+                      {figure.caption ? (
+                        <figcaption className="text-xs text-muted-foreground line-clamp-3">
+                          {figure.caption}
+                        </figcaption>
+                      ) : null}
+                    </figure>
+                  ) : null
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
+  )
+}
+
+export function AudiobooksTab() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const { data: audiobooks, isLoading } = useAudiobooks()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const handleDelete = async (audiobookId: string) => {
+    setDeletingId(audiobookId)
+    try {
+      await audiobooksApi.delete(audiobookId)
+      await queryClient.invalidateQueries({ queryKey: AUDIOBOOK_QUERY_KEYS.audiobooks })
+    } catch (error) {
+      console.error('Failed to delete audiobook', error)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  if (selectedId) {
+    return <AudiobookDetailView audiobookId={selectedId} onBack={() => setSelectedId(null)} />
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!audiobooks || audiobooks.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
+        <Headphones className="mx-auto mb-3 h-8 w-8" />
+        <p>{t('podcasts.audiobooksEmpty')}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {audiobooks.map((audiobook) =>
+        audiobook.id ? (
+          <Card
+            key={audiobook.id}
+            className="cursor-pointer hover:border-primary/50 transition-colors"
+            onClick={() => setSelectedId(audiobook.id)}
+          >
+            <CardHeader>
+              <CardTitle className="text-base flex items-start justify-between gap-2">
+                <span className="line-clamp-2">{audiobook.name}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 h-8 w-8 text-muted-foreground"
+                  disabled={deletingId === audiobook.id}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void handleDelete(audiobook.id as string)
+                  }}
+                  aria-label={t('common.delete')}
+                >
+                  {deletingId === audiobook.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Badge variant="secondary">
+                {t('podcasts.audiobookChapterCount').replace(
+                  '{{count}}',
+                  String(audiobook.chapter_count ?? 0)
+                )}
+              </Badge>
+            </CardContent>
+          </Card>
+        ) : null
+      )}
+    </div>
+  )
+}

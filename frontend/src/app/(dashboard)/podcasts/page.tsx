@@ -6,16 +6,17 @@ import { AlertTriangle } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { AudiobooksTab } from '@/components/podcasts/AudiobooksTab'
 import { EpisodesTab } from '@/components/podcasts/EpisodesTab'
 import { TemplatesTab } from '@/components/podcasts/TemplatesTab'
-import { Mic, LayoutTemplate } from 'lucide-react'
+import { Mic, LayoutTemplate, Headphones } from 'lucide-react'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { useEpisodeProfiles, useSpeakerProfiles } from '@/lib/hooks/use-podcasts'
 import { needsModelSetup } from '@/lib/types/podcasts'
 
 export default function PodcastsPage() {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'episodes' | 'templates'>('episodes')
+  const [activeTab, setActiveTab] = useState<'episodes' | 'audiobooks' | 'templates'>('episodes')
 
   const { episodeProfiles } = useEpisodeProfiles()
   const { speakerProfiles } = useSpeakerProfiles(episodeProfiles)
@@ -47,7 +48,7 @@ export default function PodcastsPage() {
 
           <Tabs
             value={activeTab}
-            onValueChange={(value) => setActiveTab(value as 'episodes' | 'templates')}
+            onValueChange={(value) => setActiveTab(value as 'episodes' | 'audiobooks' | 'templates')}
             className="space-y-6"
           >
             <div className="space-y-2">
@@ -56,6 +57,10 @@ export default function PodcastsPage() {
                 <TabsTrigger value="episodes">
                   <Mic className="h-4 w-4" />
                   {t('podcasts.episodesTab')}
+                </TabsTrigger>
+                <TabsTrigger value="audiobooks">
+                  <Headphones className="h-4 w-4" />
+                  {t('podcasts.audiobooksTab')}
                 </TabsTrigger>
                 <TabsTrigger value="templates">
                   <LayoutTemplate className="h-4 w-4" />
@@ -66,6 +71,10 @@ export default function PodcastsPage() {
 
             <TabsContent value="episodes">
               <EpisodesTab />
+            </TabsContent>
+
+            <TabsContent value="audiobooks">
+              <AudiobooksTab />
             </TabsContent>
 
             <TabsContent value="templates">
