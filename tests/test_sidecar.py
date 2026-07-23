@@ -120,9 +120,11 @@ async def test_configure_drops_unresolvable_profiles(monkeypatch):
     calls = {c.args[0]: c.args[1] for c in configure.call_args_list}
     episode_names = set(calls["episode_config"]["profiles"])
     speaker_names = set(calls["speakers_config"]["profiles"])
-    # Unresolvable profile-level models drop the profile...
-    assert episode_names == {"good", "no_models"}
-    assert speaker_names == {"voiced", "per_speaker"}
+    # Unresolvable profile-level models drop the profile; profiles that end
+    # up WITHOUT resolved provider/model pairs are dropped too (strict
+    # podcast-creator validation covers the whole dict).
+    assert episode_names == {"good"}
+    assert speaker_names == {"voiced"}
     # ...but a per-speaker failure only logs; the profile survives.
     good = calls["episode_config"]["profiles"]["good"]
     assert good["outline_provider"] == "google"
@@ -132,6 +134,9 @@ async def test_configure_drops_unresolvable_profiles(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_create_podcast_handles_none_result(monkeypatch, tmp_path):
     from unittest.mock import AsyncMock
+
+    # Result serialization is shared; pin the two-pass path explicitly.
+    monkeypatch.setenv("SIDECAR_SINGLE_PASS", "0")
 
     from sidecar import podcast_runner as pr
 
@@ -155,6 +160,9 @@ async def test_run_create_podcast_handles_none_result(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_run_create_podcast_serializes_result(monkeypatch, tmp_path):
     from unittest.mock import AsyncMock
+
+    # Result serialization is shared; pin the two-pass path explicitly.
+    monkeypatch.setenv("SIDECAR_SINGLE_PASS", "0")
 
     from pydantic import BaseModel
 
@@ -186,6 +194,30 @@ async def test_run_create_podcast_serializes_result(monkeypatch, tmp_path):
     assert result.final_output_file_path == str(tmp_path / "a.mp3")
     assert result.transcript == [{"dialogue": "x"}]
     assert result.outline == {"segments": []}
+
+
+def test_sanitize_drops_unresolved_and_datetime_fields():
+    import datetime
+
+    from sidecar.podcast_runner import _sanitize_profiles
+
+    episodes = {
+        "resolved": {
+            "transcript_provider": "anthropic",
+            "transcript_model": "claude-sonnet-5",
+            "created": datetime.datetime.now(),
+        },
+        "upstream_seed": {"name": "business_panel", "created": datetime.datetime.now()},
+    }
+    speakers = {
+        "voiced": {"tts_provider": "google", "tts_model": "tts-x", "updated": datetime.datetime.now()},
+        "unvoiced_seed": {"name": "tech_experts"},
+    }
+    _sanitize_profiles(episodes, speakers)
+    assert set(episodes) == {"resolved"}
+    assert set(speakers) == {"voiced"}
+    assert "created" not in episodes["resolved"]
+    assert "updated" not in speakers["voiced"]
 
 
 # ---------------------------------------------------------------------------
@@ -308,11 +340,12 @@ async def test_run_create_podcast_routes_on_env_flag(monkeypatch, tmp_path):
         content="c", briefing="b", episode_name="e",
         output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
     )
+    # Single-pass is the default (measured better + cheaper); 0 opts out.
     monkeypatch.delenv("SIDECAR_SINGLE_PASS", raising=False)
     await pr.run_create_podcast(**kwargs)
-    two_pass.assert_awaited_once()
-    one_pass.assert_not_awaited()
-
-    monkeypatch.setenv("SIDECAR_SINGLE_PASS", "1")
-    await pr.run_create_podcast(**kwargs)
     one_pass.assert_awaited_once()
+    two_pass.assert_not_awaited()
+
+    monkeypatch.setenv("SIDECAR_SINGLE_PASS", "0")
+    await pr.run_create_podcast(**kwargs)
+    two_pass.assert_awaited_once()

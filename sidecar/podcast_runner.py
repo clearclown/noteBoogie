@@ -232,8 +232,39 @@ async def _configure_podcast_creator() -> None:
                         f"'{speaker.get('name')}': {e}"
                     )
 
+    _sanitize_profiles(episode_profiles_dict, speaker_profiles_dict)
     configure("speakers_config", {"profiles": speaker_profiles_dict})
     configure("episode_config", {"profiles": episode_profiles_dict})
+
+
+def _sanitize_profiles(
+    episode_profiles_dict: dict, speaker_profiles_dict: dict
+) -> None:
+    """Drop profiles that cannot pass podcast-creator's strict validation.
+
+    Since migration 22 removed the legacy provider/model strings, profiles
+    without a linked model resolve to dicts missing tts_provider/tts_model
+    (speakers) or transcript_provider/transcript_model (episodes). Newer
+    podcast-creator validates the WHOLE profiles dict, so one unconfigured
+    upstream seed profile (e.g. business_panel) fails every generation.
+    DB datetime fields are stripped too (not JSON-serializable downstream).
+    """
+    for profiles in (episode_profiles_dict, speaker_profiles_dict):
+        for profile in profiles.values():
+            profile.pop("created", None)
+            profile.pop("updated", None)
+
+    for sp_name in list(speaker_profiles_dict.keys()):
+        sp = speaker_profiles_dict[sp_name]
+        if not (sp.get("tts_provider") and sp.get("tts_model")):
+            logger.debug(f"Dropping speaker profile '{sp_name}' (no resolved TTS)")
+            del speaker_profiles_dict[sp_name]
+
+    for ep_name in list(episode_profiles_dict.keys()):
+        ep = episode_profiles_dict[ep_name]
+        if not (ep.get("transcript_provider") and ep.get("transcript_model")):
+            logger.debug(f"Dropping episode profile '{ep_name}' (no resolved LLM)")
+            del episode_profiles_dict[ep_name]
 
 
 async def run_create_podcast(
@@ -255,9 +286,11 @@ async def run_create_podcast(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     await _configure_podcast_creator()
 
-    # SIDECAR_SINGLE_PASS=1 skips the outline LLM call (fixed monologue
-    # structure). Default off until the eval harness confirms parity.
-    single_pass = os.getenv("SIDECAR_SINGLE_PASS", "").lower() in ("1", "true", "yes")
+    # Single-pass (no outline LLM) is the DEFAULT: measured on the full book
+    # it scored higher than two-pass (reward 0.83-0.90 vs 0.72 avg), halves
+    # script-LLM input cost, and eliminates the outline node's structured-
+    # JSON failures on long chapters. SIDECAR_SINGLE_PASS=0 opts out.
+    single_pass = os.getenv("SIDECAR_SINGLE_PASS", "1").lower() in ("1", "true", "yes")
     logger.info(
         f"Sidecar create_podcast: episode_name={episode_name} single_pass={single_pass}"
     )
