@@ -140,7 +140,7 @@ class TestOptimizeLoop:
             return []
 
         async def fake_generate(provider, model, briefing, content):
-            if provider == "anthropic" and model == "claude-sonnet-5" and briefing == "":
+            if provider == "anthropic" and model == mod.OPTIMIZER_MODEL[1] and briefing == "":
                 # optimizer call
                 return optimizer_response, 500, 500
             # eval-generation call: quality depends on which briefing is used

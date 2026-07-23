@@ -35,7 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.eval_transcript import evaluate_chapter, generate_with_model  # noqa: E402
 from scripts.optimize_briefing import Budget, compose_reward  # noqa: E402
 
-INSTANTIATION_MODEL = ("anthropic", "claude-sonnet-5")
+# オペレータの具体化（どの文をどう編集するか）も推論タスク → 最上位モデル
+INSTANTIATION_MODEL = ("anthropic", "claude-opus-4-8")
 STATE_PATH = Path("data/rl/bandit_state.json")
 LOG_PATH = Path("data/rl/bandit_log.jsonl")
 

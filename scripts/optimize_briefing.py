@@ -28,7 +28,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.eval_transcript import evaluate_chapter, generate_with_model  # noqa: E402
 
-OPTIMIZER_MODEL = ("anthropic", "claude-sonnet-5")
+# 最適化器は「履歴から因果を推測して編集を設計する」推論タスク → 最上位モデル。
+# 呼び出しは世代あたり1回と少なく、コストより編集の質が支配的（2026-07 精度優先方針）
+OPTIMIZER_MODEL = ("anthropic", "claude-opus-4-8")
 
 # ---------------------------------------------------------------------------
 # Reward / state (pure, unit-tested)

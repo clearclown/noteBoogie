@@ -216,6 +216,7 @@ def evaluate_chapter(name: str, content: str, transcript: object) -> ChapterEval
 # ---------------------------------------------------------------------------
 
 PRICES = {
+    "anthropic:claude-opus-4-8": (5.0, 25.0),
     "anthropic:claude-sonnet-5": (3.0, 15.0),
     "anthropic:claude-haiku-4-5": (1.0, 5.0),
     "deepseek:deepseek-v4-flash": (0.14, 0.28),
