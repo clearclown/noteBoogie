@@ -58,6 +58,42 @@ fn collect_headings(markdown: &str) -> Vec<(usize, String, HeadingLevel)> {
     headings
 }
 
+/// Identity key for chapter titles, tolerant of OCR jitter.
+///
+/// Running headers of the SAME chapter come back with varying whitespace and
+/// separator glyphs (`第1章 |ケース…` / `第1章 | ケース…` / bare `第1章`).
+/// Two normalizations: strip whitespace + separator glyphs, and — when the
+/// title carries a `第N章`/`第N部` marker — reduce to that marker alone so a
+/// bare 扉 heading and the full running header unify.
+fn title_key(title: &str) -> String {
+    const SEPARATORS: &[char] = &['|', '｜', '·', '・', ':', '：', '-', '―', '—'];
+    let stripped: String = title
+        .chars()
+        .filter(|c| !c.is_whitespace() && !SEPARATORS.contains(c))
+        .collect();
+
+    // Extract a leading 第<digits/kanji-digits>(章|部) marker if present.
+    let mut chars = stripped.chars();
+    if chars.next() == Some('第') {
+        let rest: Vec<char> = chars.collect();
+        let digits: usize = rest
+            .iter()
+            .take_while(|c| {
+                c.is_ascii_digit()
+                    || ('０'..='９').contains(*c)
+                    || "一二三四五六七八九十百".contains(**c)
+            })
+            .count();
+        if digits > 0 {
+            if let Some(unit @ ('章' | '部')) = rest.get(digits).copied() {
+                let num: String = rest[..digits].iter().collect();
+                return format!("第{num}{unit}");
+            }
+        }
+    }
+    stripped
+}
+
 /// Chars in the body once the leading heading line is excluded.
 fn body_content_chars(body: &str) -> usize {
     let rest = match body.strip_prefix('#') {
@@ -124,23 +160,22 @@ pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter>
     // Running headers (柱) re-emit chapter AND part titles on alternating
     // pages, so consecutive-dedupe alone still splits a book into hundreds of
     // fragments. Rule: a heading occurrence starts a chapter only if it is the
-    // FIRST SUBSTANTIAL occurrence of that title (TOC lines are tiny and thus
-    // never anchor). Every other occurrence — repeats and tiny firsts — is a
-    // continuation of whatever chapter is currently open, preserving document
-    // order.
+    // FIRST SUBSTANTIAL occurrence of its normalized title (TOC lines are tiny
+    // and thus never anchor). Every other occurrence — repeats, OCR spacing
+    // variants, and tiny firsts — is a continuation of whatever chapter is
+    // currently open, preserving document order.
+    let keys: Vec<String> = chapters.iter().map(|ch| title_key(&ch.title)).collect();
     let mut first_substantial: std::collections::HashMap<&str, usize> =
         std::collections::HashMap::new();
     for (i, ch) in chapters.iter().enumerate() {
         if body_content_chars(&ch.body) >= MIN_CHAPTER_BODY_CHARS
-            && !first_substantial.contains_key(ch.title.as_str())
+            && !first_substantial.contains_key(keys[i].as_str())
         {
-            first_substantial.insert(ch.title.as_str(), i);
+            first_substantial.insert(keys[i].as_str(), i);
         }
     }
-    let anchors: Vec<bool> = chapters
-        .iter()
-        .enumerate()
-        .map(|(i, ch)| first_substantial.get(ch.title.as_str()) == Some(&i))
+    let anchors: Vec<bool> = (0..chapters.len())
+        .map(|i| first_substantial.get(keys[i].as_str()) == Some(&i))
         .collect();
 
     let mut merged: Vec<Chapter> = Vec::with_capacity(chapters.len());
@@ -307,6 +342,36 @@ mod tests {
         assert!(chapters[1].body.contains("p33"));
         assert!(chapters[2].body.contains("p36"));
         assert!(chapters[2].body.contains("p37"));
+    }
+
+    #[test]
+    fn title_key_unifies_ocr_variants() {
+        assert_eq!(title_key("第1章 |ケース面接の全体像を知る"), "第1章");
+        assert_eq!(title_key("第1章 | ケース面接の全体像を知る"), "第1章");
+        assert_eq!(title_key("第1章"), "第1章");
+        assert_eq!(title_key("第７章 ·"), "第７章");
+        assert_eq!(title_key("第2部 コンサルの思考スキル獲得編"), "第2部");
+        // Non-numbered titles: whitespace/separator-insensitive identity.
+        assert_eq!(title_key("はじめに"), title_key("はじめ に"));
+        assert_ne!(title_key("はじめに"), title_key("おわりに"));
+    }
+
+    #[test]
+    fn ocr_title_variants_stay_one_chapter() {
+        let md = format!(
+            "# 第1章 |ケース面接の全体像を知る\n{}\n\n# 第1章 | ケース面接の全体像を知る\n{}\n\n# 第1章\n{}\n\n# 第2章 |思考技術\n{}",
+            body("v1"),
+            body("v2"),
+            body("v3"),
+            body("next")
+        );
+        let chapters = split_into_chapters(&md, "本");
+        assert_eq!(chapters.len(), 2, "spacing variants unify: {:?}",
+            chapters.iter().map(|c| &c.title).collect::<Vec<_>>());
+        assert!(chapters[0].body.contains("v1"));
+        assert!(chapters[0].body.contains("v2"));
+        assert!(chapters[0].body.contains("v3"));
+        assert_eq!(chapters[1].title, "第2章 |思考技術");
     }
 
     #[test]
