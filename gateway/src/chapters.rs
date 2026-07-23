@@ -229,7 +229,38 @@ pub fn split_into_chapters(markdown: &str, fallback_title: &str) -> Vec<Chapter>
         }
     }
 
-    folded
+    cap_chapter_count(folded)
+}
+
+/// Guardrail 4: cap the chapter count (heading-detection blowups).
+///
+/// Some scans promote body lines to headings (measured: 142/178 "chapters"
+/// with mid-sentence titles on two books of a 66-book batch). Each bogus
+/// chapter costs a transcript LLM call + TTS, so past MAX_CHAPTERS we merge
+/// ADJACENT chapters into evenly sized groups, preserving order. The group
+/// keeps its first chapter's title plus 「ほか」 to signal aggregation.
+const MAX_CHAPTERS: usize = 40;
+
+fn cap_chapter_count(chapters: Vec<Chapter>) -> Vec<Chapter> {
+    if chapters.len() <= MAX_CHAPTERS {
+        return chapters;
+    }
+    let group_size = chapters.len().div_ceil(MAX_CHAPTERS);
+    let mut capped: Vec<Chapter> = Vec::with_capacity(MAX_CHAPTERS);
+    for group in chapters.chunks(group_size) {
+        let title = if group.len() == 1 {
+            group[0].title.clone()
+        } else {
+            format!("{} ほか", group[0].title)
+        };
+        let body = group
+            .iter()
+            .map(|c| c.body.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        capped.push(Chapter { title, body });
+    }
+    capped
 }
 
 #[cfg(test)]
@@ -463,5 +494,35 @@ mod tests {
         let chapters = split_into_chapters(md, "Untitled");
         assert_eq!(chapters.len(), 1);
         assert_eq!(chapters[0].title, "Untitled");
+    }
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::*;
+
+    fn body_n(i: usize) -> String {
+        format!("# 見出し{i}\n{}", "本文。".repeat(100))
+    }
+
+    #[test]
+    fn caps_runaway_chapter_counts_by_merging_neighbors() {
+        // 見出し検出の暴走を模擬: 142個の「章」
+        let md: String = (0..142).map(body_n).collect::<Vec<_>>().join("\n");
+        let chapters = split_into_chapters(&md, "本");
+        assert!(chapters.len() <= MAX_CHAPTERS, "got {}", chapters.len());
+        // 順序保存: 最初のグループは先頭見出しから始まる
+        assert!(chapters[0].title.starts_with("見出し0"));
+        assert!(chapters[0].title.ends_with("ほか"));
+        assert!(chapters[0].body.contains("本文。"));
+        // 全本文が失われない
+        let total: usize = chapters.iter().map(|c| c.body.len()).sum();
+        assert!(total > 100 * 142 * 3);
+    }
+
+    #[test]
+    fn normal_books_are_untouched() {
+        let md: String = (0..13).map(body_n).collect::<Vec<_>>().join("\n");
+        assert_eq!(split_into_chapters(&md, "本").len(), 13);
     }
 }
