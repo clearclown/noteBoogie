@@ -185,7 +185,10 @@ book-stack:
 	@sleep 2
 	@uv run --env-file .env --group sidecar python -m sidecar.podcast_sidecar &
 	@sleep 2
-	@cd gateway && PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release && ./target/release/gateway &
+	@cd gateway && PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release
+	@./gateway/target/release/gateway &
+	# Gateway must run from the repo root: the API hard-codes DATA_FOLDER=./data
+	# (open_notebook/config.py) and serves chapter audio from ./data/podcasts.
 	@sleep 2
 	@echo "✅ book-stack: DB:8000 API:5055 sidecar:50069 gateway:8088 (frontend: make run)"
 
