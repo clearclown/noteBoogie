@@ -74,6 +74,13 @@ dev = [
     "types-requests>=2.32.4.20250913",
 ]
 
+# Python sidecar (gRPC) for the Rust gateway. Wraps Python-only computation
+# (podcast-creator: outline/transcript LLM + TTS) that has no Rust equivalent.
+sidecar = [
+    "grpcio>=1.68.0",
+    "grpcio-tools>=1.68.0",
+]
+
 [tool.isort]
 profile = "black"
 line_length = 88

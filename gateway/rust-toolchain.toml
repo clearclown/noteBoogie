@@ -1,0 +1,4 @@
+# reinhardt-web 0.3.0-rc.5 requires rustc >= 1.96.0.
+# Pin to the rustup-managed stable toolchain (the Homebrew rustc on PATH is 1.95.0).
+[toolchain]
+channel = "1.96.0"

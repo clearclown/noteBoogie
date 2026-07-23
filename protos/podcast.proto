@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+// gRPC contract between the Rust gateway (reinhardt-web) and the Python sidecar.
+// The sidecar wraps Python-only computation that has no Rust equivalent:
+// podcast-creator (outline LLM -> transcript LLM -> TTS) and content-core extraction.
+//
+// Single source of truth: codegen for both sides is generated from this file
+//   - Rust:   tonic-build (gateway/build.rs)
+//   - Python: python -m grpc_tools.protoc  ->  sidecar/gen/
+package noteboogie.podcast.v1;
+
+service PodcastSidecar {
+  // Health/liveness probe.
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // Generate one episode's audio from a single chunk of content.
+  // Mirrors commands/podcast_commands.py: profile resolve -> configure(...) -> create_podcast(...).
+  // One call == one outline -> N segments -> one mp3 (per the podcast-creator library).
+  // The Rust gateway loops this per chapter for audiobooks.
+  rpc CreatePodcast(CreatePodcastRequest) returns (CreatePodcastResponse);
+}
+
+message PingRequest {}
+
+message PingResponse {
+  bool ok = 1;
+  string version = 2;
+}
+
+message CreatePodcastRequest {
+  // Source text for this episode/chapter.
+  string content = 1;
+  // Full briefing (episode_profile.default_briefing [+ structured instruction] [+ suffix]).
+  string briefing = 2;
+  // Filesystem-safe output dir name (a UUID), used as podcast-creator episode_name.
+  string episode_name = 3;
+  // Absolute output directory for the generated audio (./data/podcasts/episodes/<uuid>).
+  string output_dir = 4;
+  // SpeakerProfile.name (podcast-creator speaker_config).
+  string speaker_config = 5;
+  // EpisodeProfile.name (podcast-creator episode_profile).
+  string episode_profile = 6;
+}
+
+message CreatePodcastResponse {
+  // Path to the generated mp3 (result["final_output_file_path"]).
+  string final_output_file_path = 1;
+  // result["transcript"] serialized as a JSON string.
+  string transcript_json = 2;
+  // result["outline"] serialized as a JSON string.
+  string outline_json = 3;
+}

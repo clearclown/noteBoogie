@@ -1,0 +1,26 @@
+[package]
+name = "gateway"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reinhardt = { version = "0.3.0-rc.5", package = "reinhardt-web", default-features = false, features = ["minimal"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Markdown chapter splitting (pure Rust; no Python chunking dependency).
+pulldown-cmark = "0.13"
+# SurrealDB Rust SDK (server v2). reinhardt-web's ORM does not support SurrealDB,
+# so the gateway talks to SurrealDB directly via the official SDK.
+surrealdb = { version = "2", features = ["protocol-ws", "kv-mem"] }
+# gRPC client to the Python sidecar (podcast-creator: LLM + TTS).
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+uuid = { version = "1", features = ["v4"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+
+[dev-dependencies]
+bytes = "1"

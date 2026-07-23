@@ -136,6 +136,50 @@ full:
 api:
 	uv run --env-file .env run_api.py
 
+.PHONY: convert-book ingest-book book-stack
+
+# SuperBook PDF converter (sibling dev repo; run from its dir so it finds
+# ./ai_venv and ./ai_bridge). Usage:
+#   make convert-book PDF=input/本.pdf [OUT=data/books/本] [PAGES="--max-pages 30"]
+SUPERBOOK := ../Rust_DN_SuperBook_PDF_Converter/superbook-pdf
+
+convert-book:
+	cd $(SUPERBOOK) && PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release
+	cd $(SUPERBOOK) && ./target/release/superbook-pdf markdown "$(abspath $(PDF))" \
+		-o "$(abspath $(or $(OUT),data/books/$(basename $(notdir $(PDF)))))" \
+		--generate-metadata --gpu $(PAGES)
+
+# Ingest a converted book into Open Notebook (Notebook+Source+figures+embedding).
+#   make ingest-book DIR=data/books/本 PDF=input/本.pdf [TITLE=本の題名]
+ingest-book:
+	uv run --env-file .env python scripts/ingest_book.py --dir "$(DIR)" \
+		$(if $(PDF),--pdf "$(PDF)") $(if $(TITLE),--title "$(TITLE)")
+
+# Full stack for book workflows: DB + API + worker + sidecar + gateway.
+book-stack:
+	@docker compose -f docker-compose.dev.yml up -d surrealdb
+	@sleep 3
+	@uv run run_api.py &
+	@sleep 3
+	@uv run --env-file .env surreal-commands-worker --import-modules commands &
+	@sleep 2
+	@uv run --env-file .env --group sidecar python -m sidecar.podcast_sidecar &
+	@sleep 2
+	@cd gateway && PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release && ./target/release/gateway &
+	@sleep 2
+	@echo "✅ book-stack: DB:8000 API:5055 sidecar:50069 gateway:8088 (frontend: make run)"
+
+.PHONY: sidecar sidecar-proto
+
+# Python gRPC sidecar (podcast-creator: outline/transcript LLM + TTS) for the Rust gateway.
+sidecar:
+	uv run --env-file .env --group sidecar python -m sidecar.podcast_sidecar
+
+# Regenerate Python gRPC stubs from protos/podcast.proto into sidecar/gen/.
+sidecar-proto:
+	uv run --group sidecar python -m grpc_tools.protoc -I protos \
+		--python_out=sidecar/gen --grpc_python_out=sidecar/gen protos/podcast.proto
+
 .PHONY: worker worker-start worker-stop worker-restart
 
 worker: worker-start
