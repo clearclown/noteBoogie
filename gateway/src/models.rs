@@ -143,6 +143,16 @@ mod tests {
     }
 
     #[test]
+    fn audiobook_created_roundtrips_from_projected_string() {
+        // repo.rs projects type::string(created); the field must deserialize.
+        let json = r#"{"id":"audiobook:a","name":"N","source_id":null,"briefing":null,"chapter_count":2,"created":"2026-07-23T12:00:00Z"}"#;
+        let audiobook: Audiobook = serde_json::from_str(json).unwrap();
+        assert_eq!(audiobook.created.as_deref(), Some("2026-07-23T12:00:00Z"));
+        let back = serde_json::to_value(&audiobook).unwrap();
+        assert_eq!(back["created"], "2026-07-23T12:00:00Z");
+    }
+
+    #[test]
     fn book_figure_roundtrips_with_nulls() {
         let json = r#"{"id":"book_figure:f","page":3,"chapter_index":null,"kind":"figure","caption":null}"#;
         let fig: BookFigure = serde_json::from_str(json).unwrap();
