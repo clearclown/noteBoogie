@@ -46,13 +46,21 @@ PRINCIPLES = """原則:
 
 
 async def load_persona() -> str:
-    """設定されたペルソナを読む（未設定・DB不通時はドメイン非依存の既定）。"""
+    """アクティブなペルソナを読む（未設定・DB不通時はドメイン非依存の既定）。
+
+    切替は mentor_profile.active（migration 32）。コンサル（name='default'）が
+    初期アクティブだが、engineer/editor などのプリセットや自作に切替できる。
+    """
     from open_notebook.database.repository import repo_query
 
     try:
         rows = await repo_query(
-            "SELECT persona FROM mentor_profile WHERE name = 'default'"
+            "SELECT persona FROM mentor_profile WHERE active = true LIMIT 1"
         )
+        if not rows:
+            rows = await repo_query(
+                "SELECT persona FROM mentor_profile WHERE name = 'default'"
+            )
         if rows and rows[0].get("persona"):
             return str(rows[0]["persona"])
     except Exception as e:  # noqa: BLE001 - persona is best-effort config

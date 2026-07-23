@@ -1,0 +1,2 @@
+DELETE mentor_profile WHERE name IN ["generalist", "engineer", "editor", "researcher"];
+REMOVE FIELD IF EXISTS active ON TABLE mentor_profile;

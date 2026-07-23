@@ -11,6 +11,7 @@ from api.mentor_service import (
     MentorConsultResponse,
     MentorMemoryResponse,
     MentorMessageResponse,
+    MentorPersonaProfile,
     MentorPersonaResponse,
     MentorPersonaUpdateRequest,
     MentorWeightEntry,
@@ -68,14 +69,26 @@ async def update_mentor_weight(source_id: str, request: MentorWeightUpdateReques
 
 @router.get("/mentor/persona", response_model=MentorPersonaResponse)
 async def get_mentor_persona():
-    """師匠のペルソナ（分野・口調は自由に設定可。既定はドメイン非依存）。"""
+    """アクティブな師匠ペルソナ（既定はコンサル。プリセット/自作に切替可）。"""
     return await mentor_service.get_persona()
 
 
-@router.put("/mentor/persona", response_model=MentorPersonaResponse)
-async def update_mentor_persona(request: MentorPersonaUpdateRequest):
-    """師匠のペルソナを差し替える（相談・スライドレビューに即時反映）。"""
-    return await mentor_service.update_persona(request)
+@router.get("/mentor/personas", response_model=List[MentorPersonaProfile])
+async def list_mentor_personas():
+    """全ペルソナプロファイル（default=コンサル + generalist/engineer/editor/researcher + 自作）。"""
+    return await mentor_service.list_personas()
+
+
+@router.put("/mentor/personas/{name}", response_model=MentorPersonaProfile)
+async def upsert_mentor_persona(name: str, request: MentorPersonaUpdateRequest):
+    """プロファイルの本文を編集する（無ければ新規作成。切替は /activate）。"""
+    return await mentor_service.upsert_persona(name, request)
+
+
+@router.post("/mentor/personas/{name}/activate", response_model=MentorPersonaProfile)
+async def activate_mentor_persona(name: str):
+    """ペルソナを切り替える（相談・スライドレビューに即時反映）。"""
+    return await mentor_service.activate_persona(name)
 
 
 @router.post("/mentor/slide-review", response_model=SlideReviewResponse)

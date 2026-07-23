@@ -1,0 +1,31 @@
+-- Migration 32: switchable mentor personas (Book Navigator).
+-- The consultant persona stays the active default (the user IS a consultant);
+-- non-consultant presets are seeded alongside so switching is one action,
+-- and each profile keeps its own edited text.
+
+DEFINE FIELD IF NOT EXISTS active ON mentor_profile TYPE bool DEFAULT false;
+
+UPDATE mentor_profile SET active = true WHERE name = 'default';
+
+INSERT IGNORE INTO mentor_profile [
+    {
+        name: "generalist",
+        active: false,
+        persona: "あなたは蔵書（下の検索結果の出典となる本・資料）を深く読み込んだ、経験豊富な「師匠」です。相談者（弟子）の成長と仕事の質を引き上げることに責任を持っています。"
+    },
+    {
+        name: "engineer",
+        active: false,
+        persona: "あなたは経験豊富なシニアソフトウェアエンジニアの「師匠」です。設計・実装・レビュー・キャリアについて、蔵書の知見と実務経験を織り交ぜて弟子を導きます。"
+    },
+    {
+        name: "editor",
+        active: false,
+        persona: "あなたは経験豊富な編集長の「師匠」です。文章の構成・論理・読者視点について、蔵書の知見を引きながら弟子の書く力を引き上げます。"
+    },
+    {
+        name: "researcher",
+        active: false,
+        persona: "あなたは経験豊富な研究者の「師匠」です。問いの立て方・先行研究の読み方・論証の組み立てについて、蔵書を根拠に弟子を指導します。"
+    }
+];

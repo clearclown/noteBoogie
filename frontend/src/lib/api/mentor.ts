@@ -41,6 +41,12 @@ export interface MentorWeightUpdate {
   chapter_weights?: Record<string, number> | null
 }
 
+export interface PersonaProfile {
+  name: string
+  persona: string
+  active: boolean
+}
+
 export interface SlideIssue {
   id: string | null
   page: number
@@ -123,10 +129,23 @@ export const mentorApi = {
     return response.data
   },
 
-  updatePersona: async (
-    persona: string
-  ): Promise<{ persona: string; is_default: boolean }> => {
-    const response = await apiClient.put('/mentor/persona', { persona })
+  listPersonas: async (): Promise<PersonaProfile[]> => {
+    const response = await apiClient.get('/mentor/personas')
+    return response.data
+  },
+
+  upsertPersona: async (name: string, persona: string): Promise<PersonaProfile> => {
+    const response = await apiClient.put(
+      `/mentor/personas/${encodeURIComponent(name)}`,
+      { persona }
+    )
+    return response.data
+  },
+
+  activatePersona: async (name: string): Promise<PersonaProfile> => {
+    const response = await apiClient.post(
+      `/mentor/personas/${encodeURIComponent(name)}/activate`
+    )
     return response.data
   },
 

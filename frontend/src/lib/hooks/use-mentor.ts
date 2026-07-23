@@ -148,23 +148,41 @@ export function useUpdateWeight() {
   })
 }
 
-export function useMentorPersona() {
+export function useMentorPersonas() {
   return useQuery({
     queryKey: QUERY_KEYS.mentorPersona,
-    queryFn: mentorApi.getPersona,
+    queryFn: mentorApi.listPersonas,
   })
 }
 
-export function useUpdatePersona() {
+export function useUpsertPersona() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const { t } = useTranslation()
 
   return useMutation({
-    mutationFn: mentorApi.updatePersona,
+    mutationFn: ({ name, persona }: { name: string; persona: string }) =>
+      mentorApi.upsertPersona(name, persona),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.mentorPersona })
       toast({ title: t('mentor.personaSaved') })
+    },
+    onError: () => {
+      toast({ title: t('mentor.personaError'), variant: 'destructive' })
+    },
+  })
+}
+
+export function useActivatePersona() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: mentorApi.activatePersona,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.mentorPersona })
+      toast({ title: t('mentor.personaActivated') })
     },
     onError: () => {
       toast({ title: t('mentor.personaError'), variant: 'destructive' })

@@ -322,7 +322,7 @@ def test_put_weight_rejects_foreign_table(client):
     )
 
 
-# --- persona (汎用化: コンサル固定 → 設定可能) -------------------------------
+# --- persona (汎用化: コンサル既定 + プリセット切替) --------------------------
 
 
 @pytest.mark.asyncio
@@ -333,31 +333,80 @@ async def test_get_persona_falls_back_to_domain_neutral_default(mock_query, clie
     assert response.status_code == 200
     body = response.json()
     assert body["is_default"] is True
-    # 既定はドメイン非依存（特定職種に固定しない）
+    # コード側フォールバックはドメイン非依存（特定職種に固定しない）
     assert "コンサルタント" not in body["persona"]
     assert "師匠" in body["persona"]
 
 
 @pytest.mark.asyncio
 @patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
-async def test_get_persona_returns_stored_value(mock_query, client):
+async def test_get_persona_returns_active_profile(mock_query, client):
     mock_query.return_value = [{"persona": "あなたは経験豊富な外科医の師匠です。"}]
     body = client.get("/api/mentor/persona").json()
     assert body == {"persona": "あなたは経験豊富な外科医の師匠です。", "is_default": False}
+    # active = true の行を読む
+    assert "active = true" in mock_query.await_args_list[0].args[0]
 
 
 @pytest.mark.asyncio
 @patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
-async def test_put_persona_upserts(mock_query, client):
-    mock_query.return_value = []
+async def test_list_personas_orders_active_then_default(mock_query, client):
+    mock_query.return_value = [
+        {"name": "engineer", "persona": "エンジニアの師匠", "active": False},
+        {"name": "default", "persona": "コンサルの師匠", "active": False},
+        {"name": "editor", "persona": "編集長の師匠", "active": True},
+    ]
+    body = client.get("/api/mentor/personas").json()
+    assert [p["name"] for p in body] == ["editor", "default", "engineer"]
+    assert body[0]["active"] is True
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_upsert_persona_profile(mock_query, client):
+    mock_query.side_effect = [[], [{"active": False}]]
     response = client.put(
-        "/api/mentor/persona",
-        json={"persona": "あなたは経験豊富な編集者の師匠です。弟子の文章力を引き上げます。"},
+        "/api/mentor/personas/chef",
+        json={"persona": "あなたは経験豊富な料理長の師匠です。弟子の腕を引き上げます。"},
     )
     assert response.status_code == 200
-    assert response.json()["is_default"] is False
-    assert "UPSERT mentor_profile" in mock_query.await_args.args[0]
+    body = response.json()
+    assert body["name"] == "chef" and body["active"] is False
+    assert "UPSERT mentor_profile" in mock_query.await_args_list[0].args[0]
 
 
-def test_put_persona_validates_length(client):
-    assert client.put("/api/mentor/persona", json={"persona": "短い"}).status_code == 422
+def test_upsert_persona_rejects_bad_name(client):
+    response = client.put(
+        "/api/mentor/personas/Bad%20Name!",
+        json={"persona": "あなたは経験豊富な師匠です。弟子を導きます。"},
+    )
+    assert response.status_code == 400
+
+
+def test_upsert_persona_validates_length(client):
+    assert (
+        client.put("/api/mentor/personas/chef", json={"persona": "短い"}).status_code
+        == 422
+    )
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_activate_persona_switches_single_active(mock_query, client):
+    mock_query.side_effect = [
+        [{"name": "engineer", "persona": "エンジニアの師匠"}],
+        [],
+    ]
+    response = client.post("/api/mentor/personas/engineer/activate")
+    assert response.status_code == 200
+    assert response.json()["active"] is True
+    # 1クエリで「選択行のみ true、他は false」に揃える
+    update_query = mock_query.await_args_list[1].args[0]
+    assert "SET active = (name = $name)" in update_query
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_activate_unknown_persona_404(mock_query, client):
+    mock_query.return_value = []
+    assert client.post("/api/mentor/personas/nope/activate").status_code == 404

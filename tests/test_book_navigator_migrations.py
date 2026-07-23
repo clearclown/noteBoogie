@@ -120,3 +120,21 @@ class TestMigration31:
         assert "INSERT IGNORE INTO mentor_profile" in sql  # 再適用で上書きしない
         assert "コンサルタント" in sql  # 既存挙動はシードとして維持
         assert "idx_mentor_profile_name" in sql and "UNIQUE" in sql
+
+
+class TestMigration32:
+    def test_files_exist_and_registered(self):
+        assert (MIGRATIONS / "32.surrealql").exists()
+        assert (MIGRATIONS / "32_down.surrealql").exists()
+        src = (MIGRATIONS.parent / "async_migrate.py").read_text()
+        for name in ("32.surrealql", "32_down.surrealql"):
+            assert f"migrations/{name}" in src, f"{name} not registered"
+
+    def test_consultant_stays_active_and_presets_are_seeded(self):
+        sql = read("32.surrealql")
+        # コンサル（default）がアクティブのまま
+        assert "SET active = true WHERE name = 'default'" in sql
+        # 非コンサルのプリセットが切替先として並ぶ
+        for preset in ("generalist", "engineer", "editor", "researcher"):
+            assert preset in sql
+        assert "INSERT IGNORE" in sql  # 再適用でユーザー編集を壊さない

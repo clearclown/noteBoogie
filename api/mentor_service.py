@@ -80,6 +80,15 @@ class MentorPersonaUpdateRequest(BaseModel):
     persona: str = Field(min_length=10, max_length=4000)
 
 
+class MentorPersonaProfile(BaseModel):
+    name: str
+    persona: str
+    active: bool = False
+
+
+_PROFILE_NAME_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
+
+
 def extract_source_refs(search_results: List[Dict[str, Any]]) -> List[MentorSourceRef]:
     """recall のヒットから重複なしの参照本チップを組み立てる（順序維持）。"""
     refs: List[MentorSourceRef] = []
@@ -222,29 +231,76 @@ class MentorService:
 
     @staticmethod
     async def get_persona() -> MentorPersonaResponse:
-        """現在のペルソナ（未設定ならドメイン非依存の既定）。"""
-        from open_notebook.database.repository import repo_query
-        from open_notebook.graphs.mentor import DEFAULT_PERSONA
+        """アクティブなペルソナ（未設定ならドメイン非依存の既定）。"""
+        from open_notebook.graphs.mentor import DEFAULT_PERSONA, load_persona
 
-        rows = await repo_query(
-            "SELECT persona FROM mentor_profile WHERE name = 'default'"
-        )
-        stored = str(rows[0].get("persona")) if rows and rows[0].get("persona") else None
+        persona = await load_persona()
         return MentorPersonaResponse(
-            persona=stored or DEFAULT_PERSONA, is_default=stored is None
+            persona=persona, is_default=persona == DEFAULT_PERSONA
         )
 
     @staticmethod
-    async def update_persona(request: MentorPersonaUpdateRequest) -> MentorPersonaResponse:
-        """ペルソナを差し替える（相談・スライドレビュー両方に即時反映）。"""
+    async def list_personas() -> List[MentorPersonaProfile]:
+        """全ペルソナプロファイル（コンサル既定 + プリセット + 自作）。"""
         from open_notebook.database.repository import repo_query
 
-        await repo_query(
-            "UPSERT mentor_profile SET name = 'default', persona = $persona "
-            "WHERE name = 'default'",
-            {"persona": request.persona},
+        rows = await repo_query(
+            "SELECT name, persona, active FROM mentor_profile"
         )
-        return MentorPersonaResponse(persona=request.persona, is_default=False)
+        profiles = [
+            MentorPersonaProfile(
+                name=str(r.get("name")),
+                persona=str(r.get("persona") or ""),
+                active=bool(r.get("active")),
+            )
+            for r in rows
+        ]
+        # 表示順: アクティブ → default → 名前順
+        profiles.sort(key=lambda p: (not p.active, p.name != "default", p.name))
+        return profiles
+
+    @staticmethod
+    async def upsert_persona(
+        name: str, request: MentorPersonaUpdateRequest
+    ) -> MentorPersonaProfile:
+        """プロファイルの本文を更新（無ければ新規作成、切替はしない）。"""
+        from open_notebook.database.repository import repo_query
+
+        if not _PROFILE_NAME_RE.match(name):
+            raise InvalidInputError(
+                f"Invalid profile name: {name} (use a-z, 0-9, -, _)"
+            )
+        await repo_query(
+            "UPSERT mentor_profile SET name = $name, persona = $persona "
+            "WHERE name = $name",
+            {"name": name, "persona": request.persona},
+        )
+        rows = await repo_query(
+            "SELECT active FROM mentor_profile WHERE name = $name", {"name": name}
+        )
+        return MentorPersonaProfile(
+            name=name,
+            persona=request.persona,
+            active=bool(rows and rows[0].get("active")),
+        )
+
+    @staticmethod
+    async def activate_persona(name: str) -> MentorPersonaProfile:
+        """ペルソナを切り替える（相談・スライドレビューに即時反映）。"""
+        from open_notebook.database.repository import repo_query
+
+        rows = await repo_query(
+            "SELECT name, persona FROM mentor_profile WHERE name = $name",
+            {"name": name},
+        )
+        if not rows:
+            raise NotFoundError(f"Persona profile not found: {name}")
+        await repo_query(
+            "UPDATE mentor_profile SET active = (name = $name)", {"name": name}
+        )
+        return MentorPersonaProfile(
+            name=name, persona=str(rows[0].get("persona") or ""), active=True
+        )
 
     @staticmethod
     async def get_weights() -> List[MentorWeightEntry]:

@@ -135,9 +135,11 @@ make set-book-models TTS_PROVIDER=openai_compatible TTS=kokoro
 蔵書を読み込んだ「師匠」に、資料作成・仕事の進め方・キャリアを相談できます。
 過去の相談を記憶（`mentor_memory`）しており、蔵書に根拠がある助言は『本のタイトル』付きで返します。
 
-**ペルソナは自由設定**: 師匠は職種固定ではありません。/mentor の「ペルソナ」ボタン（または
-`PUT /api/mentor/persona`）で、蔵書に合わせて自由に書き換えられます（例: 外科医・編集長・
-シェフの師匠）。既定シードはコンサルタント。相談とスライドレビューの両方に即時反映されます。
+**ペルソナは切り替え可能**: 既定はコンサルタントの師匠（`default`）ですが、/mentor の
+「ペルソナ」ボタンから **generalist / engineer / editor / researcher** のプリセットや
+自作プロファイル（`PUT /api/mentor/personas/{name}` → `POST …/activate`）へワンクリックで
+切り替えられます。各プロファイルは本文を自由に編集でき、切替は相談とスライドレビューの
+両方に即時反映されます。
 
 ### 専用ページ /mentor
 
