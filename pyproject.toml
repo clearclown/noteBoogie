@@ -87,6 +87,8 @@ line_length = 88
 
 [tool.ruff]
 line-length = 88
+# Generated gRPC stubs (protoc output) are not lint targets.
+extend-exclude = ["sidecar/gen"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

@@ -45,10 +45,13 @@ def main(model: str, base_url: str) -> None:
     ]
 
     t0 = time.time()
+    # Non-streaming call; narrow the ChatCompletion | stream union for mypy.
     resp = llm.chat_complete(messages)
     elapsed = time.time() - t0
 
-    msg = resp.choices[0].message
+    if not hasattr(resp, "choices"):
+        raise SystemExit("unexpected streaming response from ollama")
+    msg = resp.choices[0].message  # type: ignore[union-attr]
     # gpt-oss emits <think> reasoning; cleaned_content is the spoken script.
     script = (msg.cleaned_content or msg.content or "").strip()
 

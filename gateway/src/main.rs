@@ -45,6 +45,10 @@ async fn main() {
     let addr: SocketAddr = cfg.bind_addr.parse().expect("valid bind address");
     println!("noteboogie-gateway listening on http://{addr}");
     HttpServer::new(router)
+        // The Next.js frontend (:3000) calls the gateway cross-origin; without
+        // CORS headers the browser blocks every audiobooks/figures fetch.
+        // Permissive matches the dev posture of the FastAPI backend.
+        .with_middleware(reinhardt_middleware::CorsMiddleware::permissive())
         .listen(addr)
         .await
         .expect("server failed");
