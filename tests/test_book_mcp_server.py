@@ -52,7 +52,7 @@ async def test_ask_book_requires_default_chat_model(monkeypatch):
         default_chat_model = None
 
     monkeypatch.setattr(
-        "open_notebook.domain.models.DefaultModels.get_instance",
+        "open_notebook.ai.models.DefaultModels.get_instance",
         AsyncMock(return_value=Defaults()),
     )
     with pytest.raises(ValueError, match="default_chat_model"):
@@ -65,7 +65,7 @@ async def test_ask_book_invokes_graph_with_three_model_slots(monkeypatch):
         default_chat_model = "model:m1"
 
     monkeypatch.setattr(
-        "open_notebook.domain.models.DefaultModels.get_instance",
+        "open_notebook.ai.models.DefaultModels.get_instance",
         AsyncMock(return_value=Defaults()),
     )
     ainvoke = AsyncMock(return_value={"final_answer": "回答 [source:x]"})

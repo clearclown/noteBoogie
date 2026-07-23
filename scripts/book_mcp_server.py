@@ -71,7 +71,7 @@ async def do_search_books(query: str, limit: int = 5) -> list[dict[str, Any]]:
 
 
 async def do_ask_book(question: str) -> str:
-    from open_notebook.domain.models import DefaultModels
+    from open_notebook.ai.models import DefaultModels
     from open_notebook.graphs.ask import graph
 
     defaults = await DefaultModels.get_instance()
