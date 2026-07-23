@@ -1050,5 +1050,13 @@ export const jaJP = {
     applyError: "修正の適用に失敗しました",
     discussReview: "相談で深掘り",
     discussPrefill: "「{{filename}}」のレビュー（総合 {{overall}}/5）について深掘りしたいです。最優先の直しは「{{fix}}」とのことですが、どこから手を付けるべきですか？",
+    personaButton: "ペルソナ",
+    personaCustom: "カスタム",
+    personaTitle: "師匠のペルソナ",
+    personaHelp: "師匠は職種固定ではありません。蔵書に合わせて自由に設定できます（コンサル・外科医・編集者・料理人など）。相談とスライドレビューに即時反映されます。",
+    personaPlaceholder: "例: あなたは経験豊富な編集長の師匠です。弟子の文章力を引き上げます…",
+    personaSave: "保存",
+    personaSaved: "ペルソナを保存しました",
+    personaError: "ペルソナの保存に失敗しました",
   },
 } satisfies TranslationShape;

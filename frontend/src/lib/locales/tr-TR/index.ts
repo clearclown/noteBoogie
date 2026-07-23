@@ -1050,5 +1050,13 @@ export const trTR = {
     applyError: "Düzeltmeler uygulanamadı",
     discussReview: "Mentorla derinleştir",
     discussPrefill: "“{{filename}}” incelemesini derinleştirmek istiyorum (genel {{overall}}/5). Öncelikli düzeltme: “{{fix}}” — nereden başlamalıyım?",
+    personaButton: "Persona",
+    personaCustom: "özel",
+    personaTitle: "Mentor personası",
+    personaHelp: "Mentor bir mesleğe bağlı değildir. Kütüphanenize göre kim olduğunu tanımlayın (danışman, cerrah, editör, şef…) — danışma ve slayt incelemelerine anında uygulanır.",
+    personaPlaceholder: "örn.: Kullanıcının yazımına rehberlik eden deneyimli bir genel yayın yönetmenisiniz…",
+    personaSave: "Kaydet",
+    personaSaved: "Persona kaydedildi",
+    personaError: "Persona kaydedilemedi",
   },
 } satisfies TranslationShape;

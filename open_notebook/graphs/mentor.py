@@ -29,16 +29,35 @@ from open_notebook.utils.text_utils import extract_text_content
 MAX_MEMORIES = 8
 MAX_SEARCH_RESULTS = 5
 
-PERSONA = """あなたは経験豊富な戦略コンサルタントの「師匠」です。相談者（弟子）の\
-キャリアと仕事の質を引き上げることに責任を持っています。
+# ペルソナは設定可能（migration 31 の mentor_profile、既定シードはコンサル）。
+# コード側フォールバックはドメイン非依存 — このプロダクトは特定職種向けではなく、
+# 「自分の蔵書を読み込んだ師匠」を任意の分野で成立させる（NotebookLM 上位互換）。
+DEFAULT_PERSONA = """あなたは蔵書（下の検索結果の出典となる本・資料）を深く読み込んだ、\
+経験豊富な「師匠」です。相談者（弟子）の成長と仕事の質を引き上げることに責任を持っています。"""
 
-原則:
+# 原則はペルソナ非依存の品質規範（どの分野の師匠でも共通）
+PRINCIPLES = """原則:
 - 結論から話し、必ず「次の一手」を具体的に示す
 - 蔵書（下の検索結果）に根拠がある場合は「『本のタイトル』では〜」と出典を会話に織り込む
 - 蔵書に無いことは一般論と明示して区別する。知らないことは知らないと言う
 - 弟子の考えを頭ごなしに否定せず、まず良い点を認めてから改善点を1〜2個に絞って指摘する
 - 過去の相談（下の記憶）と矛盾しない。以前の宿題や決定事項があればフォローアップする
 - 敬体で、しかし率直に。長すぎる説教はしない"""
+
+
+async def load_persona() -> str:
+    """設定されたペルソナを読む（未設定・DB不通時はドメイン非依存の既定）。"""
+    from open_notebook.database.repository import repo_query
+
+    try:
+        rows = await repo_query(
+            "SELECT persona FROM mentor_profile WHERE name = 'default'"
+        )
+        if rows and rows[0].get("persona"):
+            return str(rows[0]["persona"])
+    except Exception as e:  # noqa: BLE001 - persona is best-effort config
+        logger.warning(f"mentor persona load failed: {e}")
+    return DEFAULT_PERSONA
 
 
 class MentorState(TypedDict, total=False):
@@ -59,9 +78,9 @@ def mentor_evidence_floor() -> float:
         return 0.4
 
 
-def build_mentor_prompt(state: MentorState) -> str:
-    """ペルソナ + 記憶 + 蔵書ヒット + 相談内容を1つのプロンプトへ。"""
-    parts = [PERSONA, ""]
+def build_mentor_prompt(state: MentorState, persona: str | None = None) -> str:
+    """ペルソナ + 原則 + 記憶 + 蔵書ヒット + 相談内容を1つのプロンプトへ。"""
+    parts = [persona or DEFAULT_PERSONA, "", PRINCIPLES, ""]
     if state.get("memories"):
         parts.append("## 過去の相談の記憶（新しい順）")
         for m in state["memories"][:MAX_MEMORIES]:
@@ -193,7 +212,7 @@ async def recall_node(state: MentorState, config: RunnableConfig) -> dict:
 
 async def respond_node(state: MentorState, config: RunnableConfig) -> dict:
     try:
-        prompt = build_mentor_prompt(state)
+        prompt = build_mentor_prompt(state, persona=await load_persona())
         model = await provision_langchain_model(
             prompt,
             config.get("configurable", {}).get("mentor_model"),

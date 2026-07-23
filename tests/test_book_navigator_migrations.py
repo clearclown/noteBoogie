@@ -105,3 +105,18 @@ class TestMigration30:
         sql = read("30_down.surrealql")
         assert "REMOVE TABLE IF EXISTS quality_event" in sql
         assert "REMOVE FIELD IF EXISTS feedback ON TABLE episode" in sql
+
+
+class TestMigration31:
+    def test_files_exist_and_registered(self):
+        assert (MIGRATIONS / "31.surrealql").exists()
+        assert (MIGRATIONS / "31_down.surrealql").exists()
+        src = (MIGRATIONS.parent / "async_migrate.py").read_text()
+        for name in ("31.surrealql", "31_down.surrealql"):
+            assert f"migrations/{name}" in src, f"{name} not registered"
+
+    def test_seeds_consultant_as_editable_default(self):
+        sql = read("31.surrealql")
+        assert "INSERT IGNORE INTO mentor_profile" in sql  # 再適用で上書きしない
+        assert "コンサルタント" in sql  # 既存挙動はシードとして維持
+        assert "idx_mentor_profile_name" in sql and "UNIQUE" in sql

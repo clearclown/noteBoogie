@@ -1051,5 +1051,13 @@ export const esES = {
     applyError: "No se pudieron aplicar las correcciones",
     discussReview: "Profundizar con el mentor",
     discussPrefill: "Quiero profundizar en la revisión de «{{filename}}» (nota {{overall}}/5). La corrección prioritaria es «{{fix}}»: ¿por dónde empiezo?",
+    personaButton: "Persona",
+    personaCustom: "personalizada",
+    personaTitle: "Persona del mentor",
+    personaHelp: "El mentor no está atado a ninguna profesión. Describe quién es (consultor, cirujano, editor, chef…) según tu biblioteca; se aplica de inmediato a consultas y revisiones de diapositivas.",
+    personaPlaceholder: "p. ej.: Eres un redactor jefe experimentado que guía la escritura del usuario…",
+    personaSave: "Guardar",
+    personaSaved: "Persona guardada",
+    personaError: "No se pudo guardar la persona",
   },
 } satisfies TranslationShape;

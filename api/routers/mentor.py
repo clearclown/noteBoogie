@@ -11,6 +11,8 @@ from api.mentor_service import (
     MentorConsultResponse,
     MentorMemoryResponse,
     MentorMessageResponse,
+    MentorPersonaResponse,
+    MentorPersonaUpdateRequest,
     MentorWeightEntry,
     MentorWeightUpdateRequest,
     mentor_service,
@@ -62,6 +64,18 @@ async def get_mentor_weights():
 async def update_mentor_weight(source_id: str, request: MentorWeightUpdateRequest):
     """本単位の手動傾斜（0.0〜2.0）と章単位の微調整を保存する。"""
     return await mentor_service.update_weight(source_id, request)
+
+
+@router.get("/mentor/persona", response_model=MentorPersonaResponse)
+async def get_mentor_persona():
+    """師匠のペルソナ（分野・口調は自由に設定可。既定はドメイン非依存）。"""
+    return await mentor_service.get_persona()
+
+
+@router.put("/mentor/persona", response_model=MentorPersonaResponse)
+async def update_mentor_persona(request: MentorPersonaUpdateRequest):
+    """師匠のペルソナを差し替える（相談・スライドレビューに即時反映）。"""
+    return await mentor_service.update_persona(request)
 
 
 @router.post("/mentor/slide-review", response_model=SlideReviewResponse)

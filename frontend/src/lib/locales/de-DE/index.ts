@@ -1053,5 +1053,13 @@ export const deDE = {
     applyError: "Korrekturen konnten nicht angewendet werden",
     discussReview: "Mit dem Mentor vertiefen",
     discussPrefill: "Ich möchte das Review von „{{filename}}“ vertiefen (Gesamt {{overall}}/5). Wichtigste Korrektur: „{{fix}}“ — womit fange ich an?",
+    personaButton: "Persona",
+    personaCustom: "angepasst",
+    personaTitle: "Mentor-Persona",
+    personaHelp: "Der Mentor ist an keinen Beruf gebunden. Beschreibe, wer er ist (Berater, Chirurg, Lektor, Koch…) passend zu deiner Bibliothek — gilt sofort für Beratungen und Folien-Reviews.",
+    personaPlaceholder: "z. B.: Du bist ein erfahrener Chefredakteur, der das Schreiben des Nutzers anleitet…",
+    personaSave: "Speichern",
+    personaSaved: "Persona gespeichert",
+    personaError: "Persona konnte nicht gespeichert werden",
   },
 } satisfies TranslationShape;

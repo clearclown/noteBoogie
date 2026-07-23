@@ -1050,5 +1050,13 @@ export const zhTW = {
     applyError: "套用修改失敗",
     discussReview: "與導師深入討論",
     discussPrefill: "想深入討論「{{filename}}」的點評（總分 {{overall}}/5）。優先修改是「{{fix}}」，我該從哪裡著手？",
+    personaButton: "角色",
+    personaCustom: "自訂",
+    personaTitle: "導師角色",
+    personaHelp: "導師不限定職業。可依你的書庫自由設定（顧問、外科醫師、編輯、廚師等），立即套用於諮詢與簡報點評。",
+    personaPlaceholder: "例：你是一位經驗豐富的總編輯導師，協助學生提升寫作能力…",
+    personaSave: "儲存",
+    personaSaved: "角色已儲存",
+    personaError: "儲存角色失敗",
   },
 } satisfies TranslationShape;

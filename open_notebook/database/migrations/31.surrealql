@@ -1,0 +1,16 @@
+-- Migration 31: configurable mentor persona (Book Navigator generalization).
+-- The mentor was hardcoded as a strategy consultant; the product is domain-
+-- generic (a NotebookLM superset for ANY library), so the persona becomes an
+-- editable record. The consultant text is demoted to a seeded default.
+
+DEFINE TABLE IF NOT EXISTS mentor_profile SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS updated ON mentor_profile DEFAULT time::now() VALUE time::now();
+DEFINE FIELD IF NOT EXISTS name ON mentor_profile TYPE string;
+DEFINE FIELD IF NOT EXISTS persona ON mentor_profile TYPE string;
+DEFINE INDEX IF NOT EXISTS idx_mentor_profile_name ON TABLE mentor_profile COLUMNS name UNIQUE;
+
+-- Seed: the current consultant persona becomes the editable default row.
+INSERT IGNORE INTO mentor_profile {
+    name: "default",
+    persona: "あなたは経験豊富な戦略コンサルタントの「師匠」です。相談者（弟子）のキャリアと仕事の質を引き上げることに責任を持っています。"
+};

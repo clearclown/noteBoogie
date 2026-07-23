@@ -71,6 +71,15 @@ class MentorWeightUpdateRequest(BaseModel):
     chapter_weights: Optional[Dict[str, float]] = None
 
 
+class MentorPersonaResponse(BaseModel):
+    persona: str
+    is_default: bool
+
+
+class MentorPersonaUpdateRequest(BaseModel):
+    persona: str = Field(min_length=10, max_length=4000)
+
+
 def extract_source_refs(search_results: List[Dict[str, Any]]) -> List[MentorSourceRef]:
     """recall のヒットから重複なしの参照本チップを組み立てる（順序維持）。"""
     refs: List[MentorSourceRef] = []
@@ -210,6 +219,32 @@ class MentorService:
         if not rows:
             raise NotFoundError(f"Mentor memory not found: {memory_id}")
         await repo_delete(memory_id)
+
+    @staticmethod
+    async def get_persona() -> MentorPersonaResponse:
+        """現在のペルソナ（未設定ならドメイン非依存の既定）。"""
+        from open_notebook.database.repository import repo_query
+        from open_notebook.graphs.mentor import DEFAULT_PERSONA
+
+        rows = await repo_query(
+            "SELECT persona FROM mentor_profile WHERE name = 'default'"
+        )
+        stored = str(rows[0].get("persona")) if rows and rows[0].get("persona") else None
+        return MentorPersonaResponse(
+            persona=stored or DEFAULT_PERSONA, is_default=stored is None
+        )
+
+    @staticmethod
+    async def update_persona(request: MentorPersonaUpdateRequest) -> MentorPersonaResponse:
+        """ペルソナを差し替える（相談・スライドレビュー両方に即時反映）。"""
+        from open_notebook.database.repository import repo_query
+
+        await repo_query(
+            "UPSERT mentor_profile SET name = 'default', persona = $persona "
+            "WHERE name = 'default'",
+            {"persona": request.persona},
+        )
+        return MentorPersonaResponse(persona=request.persona, is_default=False)
 
     @staticmethod
     async def get_weights() -> List[MentorWeightEntry]:

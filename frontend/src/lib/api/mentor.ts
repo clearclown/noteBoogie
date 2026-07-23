@@ -118,6 +118,18 @@ export const mentorApi = {
     return response.data
   },
 
+  getPersona: async (): Promise<{ persona: string; is_default: boolean }> => {
+    const response = await apiClient.get('/mentor/persona')
+    return response.data
+  },
+
+  updatePersona: async (
+    persona: string
+  ): Promise<{ persona: string; is_default: boolean }> => {
+    const response = await apiClient.put('/mentor/persona', { persona })
+    return response.data
+  },
+
   reviewSlides: async (file: File): Promise<SlideReview> => {
     const form = new FormData()
     form.append('file', file)

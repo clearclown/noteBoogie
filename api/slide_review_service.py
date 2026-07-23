@@ -115,11 +115,14 @@ def rasterize_pdf(data: bytes, max_pages: int = MAX_REVIEW_PAGES) -> List[bytes]
         doc.close()
 
 
-def build_review_prompt(page_count: int) -> str:
+def build_review_prompt(page_count: int, persona: str | None = None) -> str:
     axis_lines = "\n".join(
         f"- {key}: {AXIS_NAMES_JA[key]}" for key in AXIS_KEYS
     )
-    return f"""あなたは戦略コンサルタントの「師匠」として、弟子のスライド（{page_count}ページ）をレビューします。
+    from open_notebook.graphs.mentor import DEFAULT_PERSONA
+
+    return f"""{persona or DEFAULT_PERSONA}
+その立場で、弟子のスライド（{page_count}ページ）をレビューします。
 
 以下の5軸で 0.0〜5.0 の採点と、具体的な指摘（該当ページ番号つき）・書き直し例を出してください:
 {axis_lines}
@@ -304,7 +307,9 @@ class SlideReviewService:
             images = []
             text_dump = build_text_dump(extract)
 
-        prompt = build_review_prompt(page_count)
+        from open_notebook.graphs.mentor import load_persona
+
+        prompt = build_review_prompt(page_count, persona=await load_persona())
         if kind == "pptx":
             raw_text = await run_text_review(text_dump, prompt)
         else:

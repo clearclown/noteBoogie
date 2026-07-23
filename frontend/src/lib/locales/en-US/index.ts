@@ -1049,6 +1049,14 @@ export const enUS = {
     applyError: "Could not apply the fixes",
     discussReview: "Discuss with mentor",
     discussPrefill: "I'd like to dig into the review of “{{filename}}” (overall {{overall}}/5). Top fix suggested: {{fix}} — where should I start?",
+    personaButton: "Persona",
+    personaCustom: "custom",
+    personaTitle: "Mentor persona",
+    personaHelp: "Your mentor is not tied to any profession. Describe who they are (a consultant, surgeon, editor, chef…) to match your library — it applies to consultations and slide reviews immediately.",
+    personaPlaceholder: "e.g. You are a seasoned editor-in-chief mentoring the user on their writing…",
+    personaSave: "Save",
+    personaSaved: "Persona saved",
+    personaError: "Failed to save persona",
   },
 }
 

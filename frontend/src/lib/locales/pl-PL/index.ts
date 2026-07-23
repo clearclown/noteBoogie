@@ -1050,5 +1050,13 @@ export const plPL = {
     applyError: "Nie udało się zastosować poprawek",
     discussReview: "Omów z mentorem",
     discussPrefill: "Chcę zgłębić recenzję „{{filename}}” (ocena {{overall}}/5). Priorytetowa poprawka: „{{fix}}” — od czego zacząć?",
+    personaButton: "Persona",
+    personaCustom: "własna",
+    personaTitle: "Persona mentora",
+    personaHelp: "Mentor nie jest przypisany do zawodu. Opisz, kim jest (konsultant, chirurg, redaktor, szef kuchni…) stosownie do twojej biblioteki — działa od razu w konsultacjach i recenzjach slajdów.",
+    personaPlaceholder: "np.: Jesteś doświadczonym redaktorem naczelnym prowadzącym użytkownika w pisaniu…",
+    personaSave: "Zapisz",
+    personaSaved: "Persona zapisana",
+    personaError: "Nie udało się zapisać persony",
   },
 } satisfies TranslationShape;

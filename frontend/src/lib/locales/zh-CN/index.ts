@@ -1050,5 +1050,13 @@ export const zhCN = {
     applyError: "应用修改失败",
     discussReview: "与导师深入讨论",
     discussPrefill: "想深入讨论「{{filename}}」的点评（总分 {{overall}}/5）。优先修改是「{{fix}}」，我该从哪里入手？",
+    personaButton: "角色",
+    personaCustom: "自定义",
+    personaTitle: "导师角色",
+    personaHelp: "导师不限定职业。可根据你的书库自由设定（顾问、外科医生、编辑、厨师等），立即应用于咨询和幻灯片点评。",
+    personaPlaceholder: "例：你是一位经验丰富的主编导师，帮助学生提升写作能力…",
+    personaSave: "保存",
+    personaSaved: "角色已保存",
+    personaError: "保存角色失败",
   },
 } satisfies TranslationShape;

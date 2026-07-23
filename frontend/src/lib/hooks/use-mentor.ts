@@ -148,6 +148,30 @@ export function useUpdateWeight() {
   })
 }
 
+export function useMentorPersona() {
+  return useQuery({
+    queryKey: QUERY_KEYS.mentorPersona,
+    queryFn: mentorApi.getPersona,
+  })
+}
+
+export function useUpdatePersona() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: mentorApi.updatePersona,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.mentorPersona })
+      toast({ title: t('mentor.personaSaved') })
+    },
+    onError: () => {
+      toast({ title: t('mentor.personaError'), variant: 'destructive' })
+    },
+  })
+}
+
 export function useSlideReviews() {
   return useQuery({
     queryKey: QUERY_KEYS.slideReviews,

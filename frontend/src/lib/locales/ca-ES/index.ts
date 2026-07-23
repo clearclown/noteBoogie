@@ -1050,5 +1050,13 @@ export const caES = {
     applyError: "No s'han pogut aplicar les correccions",
     discussReview: "Aprofundir amb el mentor",
     discussPrefill: "Vull aprofundir en la revisió de «{{filename}}» (nota {{overall}}/5). La correcció prioritària és «{{fix}}»: per on començo?",
+    personaButton: "Persona",
+    personaCustom: "personalitzada",
+    personaTitle: "Persona del mentor",
+    personaHelp: "El mentor no està lligat a cap professió. Descriu qui és (consultor, cirurgià, editor, xef…) segons la teva biblioteca; s'aplica de seguida a consultes i revisions de diapositives.",
+    personaPlaceholder: "p. ex.: Ets un redactor en cap experimentat que guia l'escriptura de l'usuari…",
+    personaSave: "Desa",
+    personaSaved: "Persona desada",
+    personaError: "No s'ha pogut desar la persona",
   },
 } satisfies TranslationShape;

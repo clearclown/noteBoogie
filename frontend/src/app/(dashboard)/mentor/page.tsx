@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MentorChat } from '@/components/mentor/MentorChat'
 import { MentorMemoryPanel } from '@/components/mentor/MentorMemoryPanel'
+import { MentorPersonaDialog } from '@/components/mentor/MentorPersonaDialog'
 import { MentorSlidesTab } from '@/components/mentor/MentorSlidesTab'
 import { MentorWeightsTab } from '@/components/mentor/MentorWeightsTab'
 import type { SlideReview } from '@/lib/api/mentor'
@@ -39,7 +40,10 @@ export default function MentorPage() {
               <h1 className="text-2xl font-semibold tracking-tight">{t('mentor.title')}</h1>
               <p className="text-muted-foreground">{t('mentor.subtitle')}</p>
             </div>
-            <MentorMemoryPanel />
+            <div className="flex shrink-0 gap-2">
+              <MentorPersonaDialog />
+              <MentorMemoryPanel />
+            </div>
           </header>
 
           <Tabs

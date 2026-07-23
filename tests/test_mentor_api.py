@@ -320,3 +320,44 @@ def test_put_weight_rejects_foreign_table(client):
         client.put("/api/mentor/weights/note%3Aa", json={"weight": 1.0}).status_code
         == 400
     )
+
+
+# --- persona (汎用化: コンサル固定 → 設定可能) -------------------------------
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_get_persona_falls_back_to_domain_neutral_default(mock_query, client):
+    mock_query.return_value = []
+    response = client.get("/api/mentor/persona")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_default"] is True
+    # 既定はドメイン非依存（特定職種に固定しない）
+    assert "コンサルタント" not in body["persona"]
+    assert "師匠" in body["persona"]
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_get_persona_returns_stored_value(mock_query, client):
+    mock_query.return_value = [{"persona": "あなたは経験豊富な外科医の師匠です。"}]
+    body = client.get("/api/mentor/persona").json()
+    assert body == {"persona": "あなたは経験豊富な外科医の師匠です。", "is_default": False}
+
+
+@pytest.mark.asyncio
+@patch("open_notebook.database.repository.repo_query", new_callable=AsyncMock)
+async def test_put_persona_upserts(mock_query, client):
+    mock_query.return_value = []
+    response = client.put(
+        "/api/mentor/persona",
+        json={"persona": "あなたは経験豊富な編集者の師匠です。弟子の文章力を引き上げます。"},
+    )
+    assert response.status_code == 200
+    assert response.json()["is_default"] is False
+    assert "UPSERT mentor_profile" in mock_query.await_args.args[0]
+
+
+def test_put_persona_validates_length(client):
+    assert client.put("/api/mentor/persona", json={"persona": "短い"}).status_code == 422

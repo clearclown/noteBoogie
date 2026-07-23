@@ -1050,5 +1050,13 @@ export const frFR = {
     applyError: "Impossible d'appliquer les corrections",
     discussReview: "Approfondir avec le mentor",
     discussPrefill: "Je voudrais approfondir la relecture de « {{filename}} » (note {{overall}}/5). La correction prioritaire est « {{fix}} » — par où commencer ?",
+    personaButton: "Persona",
+    personaCustom: "personnalisée",
+    personaTitle: "Persona du mentor",
+    personaHelp: "Le mentor n'est lié à aucun métier. Décrivez qui il est (consultant, chirurgien, éditeur, chef…) selon votre bibliothèque — appliqué immédiatement aux consultations et relectures de slides.",
+    personaPlaceholder: "ex. : Vous êtes un rédacteur en chef expérimenté qui guide l'écriture de l'utilisateur…",
+    personaSave: "Enregistrer",
+    personaSaved: "Persona enregistrée",
+    personaError: "Échec de l'enregistrement",
   },
 } satisfies TranslationShape;

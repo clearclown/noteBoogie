@@ -1050,5 +1050,13 @@ export const itIT = {
     applyError: "Impossibile applicare le correzioni",
     discussReview: "Approfondisci col mentore",
     discussPrefill: "Vorrei approfondire la revisione di “{{filename}}” (voto {{overall}}/5). La correzione prioritaria è “{{fix}}” — da dove comincio?",
+    personaButton: "Persona",
+    personaCustom: "personalizzata",
+    personaTitle: "Persona del mentore",
+    personaHelp: "Il mentore non è legato a una professione. Descrivi chi è (consulente, chirurgo, editor, chef…) in base alla tua libreria: vale subito per consulenze e revisioni delle slide.",
+    personaPlaceholder: "es.: Sei un caporedattore esperto che guida la scrittura dell'utente…",
+    personaSave: "Salva",
+    personaSaved: "Persona salvata",
+    personaError: "Salvataggio della persona non riuscito",
   },
 } satisfies TranslationShape;
