@@ -276,6 +276,7 @@ async def recover_missing() -> None:
     失敗章のリトライ。Google の支出上限を引き上げた後に実行する。"""
     import httpx
 
+    import commands.embedding_commands  # noqa: F401  # embed_source をレジストリ登録
     from open_notebook.database.repository import repo_query
 
     await wait_for_stack()
