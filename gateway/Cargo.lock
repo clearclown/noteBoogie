@@ -1754,6 +1754,7 @@ dependencies = [
  "serde_json",
  "surrealdb",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
