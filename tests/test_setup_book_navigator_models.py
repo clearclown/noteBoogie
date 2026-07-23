@@ -1,6 +1,5 @@
 """Unit tests for scripts/setup_book_navigator_models.py (repo_query mocked)."""
 
-from unittest.mock import AsyncMock
 
 import pytest
 

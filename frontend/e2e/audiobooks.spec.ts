@@ -56,6 +56,20 @@ const PNG = Buffer.from(
 )
 
 async function mockBackends(page: Page) {
+  // Catch-alls FIRST (Playwright matches the most recently registered route
+  // first, so the specific mocks below take precedence). Locally a real API
+  // may be running and quietly answering unmocked requests — on CI nothing
+  // else runs, and a single unmocked hanging request blocks the whole UI
+  // behind the ConnectionGuard overlay. Keep the suite hermetic.
+  await page.route(`${API}/**`, (route) => {
+    console.log('[unmocked API]', route.request().method(), route.request().url())
+    return route.fulfill({ json: {} })
+  })
+  await page.route(`${GATEWAY}/**`, (route) => {
+    console.log('[unmocked GW]', route.request().method(), route.request().url())
+    return route.fulfill({ json: [] })
+  })
+
   // Next.js runtime config -> point the app at the mocked API origin.
   await page.route('**/config', (route) =>
     route.fulfill({ json: { apiUrl: API } })
@@ -80,6 +94,25 @@ async function mockBackends(page: Page) {
     route.fulfill({ json: [] })
   )
   await page.route(`${API}/api/models*`, (route) => route.fulfill({ json: [] }))
+  // Array-shaped endpoints: the catch-all's `{}` would crash `.map()` calls
+  // and throw the page into an ErrorBoundary remount loop.
+  await page.route(`${API}/api/languages`, (route) => route.fulfill({ json: [] }))
+  await page.route(`${API}/api/sources*`, (route) => route.fulfill({ json: [] }))
+  await page.route(`${API}/api/transformations*`, (route) =>
+    route.fulfill({ json: [] })
+  )
+  await page.route(`${API}/api/notes*`, (route) => route.fulfill({ json: [] }))
+  await page.route(`${API}/api/recently-viewed*`, (route) =>
+    route.fulfill({ json: [] })
+  )
+  await page.route(`${API}/api/credentials/status`, (route) =>
+    route.fulfill({
+      json: { configured: {}, source: {}, encryption_configured: false },
+    })
+  )
+  await page.route(`${API}/api/credentials/env-status`, (route) =>
+    route.fulfill({ json: {} })
+  )
   await page.route(`${API}/api/settings*`, (route) => route.fulfill({ json: {} }))
   await page.route(`${API}/api/podcasts/episodes/episode%3Ac0/audio`, (route) =>
     route.fulfill({ contentType: 'audio/mpeg', body: Buffer.from('fakemp3') })
@@ -100,6 +133,26 @@ async function mockBackends(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  // Pre-seed the persisted auth state: these tests target the audiobooks
+  // feature, not the login flow, and the auth guard's client-side races
+  // (bounce to /login and back) otherwise flake the suite.
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'auth-storage',
+      JSON.stringify({
+        state: { token: 'not-required', isAuthenticated: true },
+        version: 0,
+      })
+    )
+  })
+  // Surface page crashes in the test output — an ErrorBoundary screen is
+  // otherwise just a silent timeout.
+  page.on('pageerror', (error) => console.log('[pageerror]', error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      console.log('[console.error]', message.text().slice(0, 300))
+    }
+  })
   await mockBackends(page)
 })
 
