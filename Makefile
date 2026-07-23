@@ -156,6 +156,14 @@ full:
 api:
 	uv run --env-file .env run_api.py
 
+.PHONY: export-audiobook
+
+# Export an audiobook into one human-readable folder + playlist.
+#   make export-audiobook AUDIOBOOK=audiobook:xxxx [OUT=data/audiobooks]
+export-audiobook:
+	uv run --env-file .env python scripts/export_audiobook.py \
+		--audiobook "$(AUDIOBOOK)" --out "$(or $(OUT),data/audiobooks)"
+
 .PHONY: set-book-models
 
 # Select the models Book Navigator uses (script + defaults in one shot).
