@@ -167,3 +167,57 @@ async fn source_lite_reads_full_text_and_title() {
 
     assert!(repo::get_source_lite(&db, "source:missing").await.unwrap().is_none());
 }
+
+#[tokio::test]
+async fn figures_are_listed_by_page_and_path_is_fetchable() {
+    let db = connect_mem().await;
+    db.query(
+        "CREATE type::thing('book_figure','g2') SET source = type::thing('source','s9'), \
+         page = 20, chapter_index = 3, path = '/imgs/late.png', kind = 'figure', caption = '後' RETURN NONE; \
+         CREATE type::thing('book_figure','g1') SET source = type::thing('source','s9'), \
+         page = 5, chapter_index = NONE, path = '/imgs/early.png', kind = 'full_page', caption = NONE RETURN NONE; \
+         CREATE type::thing('book_figure','other') SET source = type::thing('source','other'), \
+         page = 1, path = '/imgs/other.png', kind = 'figure' RETURN NONE;",
+    )
+    .await
+    .unwrap()
+    .check()
+    .unwrap();
+
+    let figures = repo::get_figures_for_source(&db, "source:s9").await.unwrap();
+    assert_eq!(figures.len(), 2, "only the requested source's figures");
+    assert_eq!(figures[0].page, Some(5), "ordered by page ascending");
+    assert_eq!(figures[0].chapter_index, None);
+    assert_eq!(figures[0].kind.as_deref(), Some("full_page"));
+    assert_eq!(figures[1].page, Some(20));
+    assert_eq!(figures[1].caption.as_deref(), Some("後"));
+
+    // Path lookup (not exposed in the list payload).
+    let path = repo::get_figure_path(&db, "book_figure:g1").await.unwrap();
+    assert_eq!(path.as_deref(), Some("/imgs/early.png"));
+    let missing = repo::get_figure_path(&db, "book_figure:nope").await.unwrap();
+    assert!(missing.is_none());
+}
+
+#[tokio::test]
+async fn figures_empty_for_unknown_source() {
+    let db = connect_mem().await;
+    let figures = repo::get_figures_for_source(&db, "source:none").await.unwrap();
+    assert!(figures.is_empty());
+}
+
+#[tokio::test]
+async fn set_episode_result_wraps_invalid_json_as_null() {
+    let db = connect_mem().await;
+    repo::create_audiobook(&db, "abj", "B", None, "b", 1).await.unwrap();
+    let ep = json!({"name": "p"});
+    let eid = repo::create_chapter_episode(&db, "ej0", "abj", "c", &ep, &ep, "b", "x", 0, "C")
+        .await
+        .unwrap();
+    // Invalid JSON payloads must not fail the write; they become NULL.
+    repo::set_episode_result(&db, &eid, "/tmp/data/podcasts/e/a.mp3", "not json{", "]also bad")
+        .await
+        .unwrap();
+    let chapters = repo::get_chapters(&db, "audiobook:abj").await.unwrap();
+    assert_eq!(chapters[0].audio_file.as_deref(), Some("e/a.mp3"));
+}
