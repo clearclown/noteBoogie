@@ -472,6 +472,8 @@ export const trTR = {
     askYourKbDesc: "Yapay zeka, bilgi tabanınızdaki belgelere dayanarak sorunuzu yanıtlayacak.",
     question: "Soru",
     enterQuestionPlaceholder: "Sorunuzu girin...",
+    askScope: "Arama kapsamı",
+    askScopeAll: "Tüm kütüphane",
     pressToSubmit: "Göndermek için Cmd/Ctrl+Enter tuşuna basın",
     noEmbeddingModel: "Seçili bir gömme modeliniz olmadığı için bu özelliği kullanamazsınız. Lütfen Modeller sayfasında bir tane ayarlayın.",
     usingCustomModels: "Özel Modeller Kullanılıyor",

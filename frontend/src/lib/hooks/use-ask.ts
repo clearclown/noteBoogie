@@ -96,7 +96,11 @@ export function useAsk() {
     }
   }, [clearStreamTimeout])
 
-  const sendAsk = useCallback(async (question: string, models: AskModels) => {
+  const sendAsk = useCallback(async (
+    question: string,
+    models: AskModels,
+    notebookId?: string | null
+  ) => {
     // Validate inputs
     if (!question.trim()) {
       toast.error(t('apiErrors.pleaseEnterQuestion'))
@@ -132,7 +136,8 @@ export function useAsk() {
         question,
         strategy_model: models.strategy,
         answer_model: models.answer,
-        final_answer_model: models.finalAnswer
+        final_answer_model: models.finalAnswer,
+        notebook_id: notebookId || undefined
       }, signal)
 
       if (!response) {

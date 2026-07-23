@@ -472,6 +472,8 @@ export const caES = {
     askYourKbDesc: "El model de llenguatge respondrà la teva consulta basant-se en els documents de la teva base de coneixement.",
     question: "Pregunta",
     enterQuestionPlaceholder: "Introdueix la teva pregunta...",
+    askScope: "Àmbit de cerca",
+    askScopeAll: "Tota la biblioteca",
     pressToSubmit: "Prem Cmd/Ctrl+Retorn per enviar",
     noEmbeddingModel: "No pots usar aquesta funció perquè no tens cap model d'incrustació seleccionat. Configura'n un a la pàgina Models.",
     usingCustomModels: "Usant models personalitzats",

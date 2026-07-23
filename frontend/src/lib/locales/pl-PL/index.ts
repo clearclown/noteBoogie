@@ -472,6 +472,8 @@ export const plPL = {
     askYourKbDesc: "Model LLM odpowie na Twoje pytanie na podstawie dokumentów w Twojej bazie wiedzy.",
     question: "Pytanie",
     enterQuestionPlaceholder: "Wpisz pytanie...",
+    askScope: "Zakres wyszukiwania",
+    askScopeAll: "Cała biblioteka",
     pressToSubmit: "Naciśnij Cmd/Ctrl+Enter, aby wysłać",
     noEmbeddingModel: "Nie możesz użyć tej funkcji, ponieważ nie wybrano modelu osadzania. Skonfiguruj go na stronie Modele.",
     usingCustomModels: "Korzystanie z modeli niestandardowych",

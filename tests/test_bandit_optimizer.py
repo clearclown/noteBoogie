@@ -94,3 +94,75 @@ def test_log_episode_appends_jsonl(tmp_path):
     lines = path.read_text().strip().splitlines()
     assert len(lines) == 2
     assert json.loads(lines[0])["action"] == "add_rule"
+
+
+# ---------------------------------------------------------------------------
+# optimize() ループ（LLM・DBモックの統合テスト）
+# ---------------------------------------------------------------------------
+
+import argparse
+import asyncio
+from unittest.mock import patch
+
+GOOD = (
+    "この章は仮説思考が身につかない悩みに答えます。"
+    "1つ目は仮説思考です。結論から考える技術です。"
+    "2つ目は論点思考です。3つ目はイシュー分析です。"
+    "アクションプランです。明日から実践してみてください。"
+) * 3
+BAD = "量子コンピュータの話だ。"
+CONTENT = ("仮説思考とは結論から考える技術である。論点思考。イシュー分析。実践。" * 30)
+
+
+def test_optimize_loop_learns_and_persists(tmp_path, monkeypatch):
+    from scripts import optimize_briefing_bandit as bandit_mod
+
+    async def fake_repo_query(query, params=None):
+        # 注意: "FROM episode_profile" は "FROM episode" を含むので順序が重要
+        if "SELECT default_briefing" in query:
+            return [{"default_briefing": "元のbriefing。"}]
+        if "UPDATE episode_profile" in query:
+            fake_repo_query.applied = params
+            return []
+        if "FROM episode" in query:
+            return [{"chapter_index": 0, "content": CONTENT, "content_len": len(CONTENT)}]
+        raise AssertionError(query)
+
+    fake_repo_query.applied = None
+
+    calls = {"n": 0}
+
+    async def fake_generate(provider, model, briefing, content):
+        # instantiation LLM 呼び出し（briefing==""）は編集JSONを返す
+        if briefing == "":
+            return ('{"rationale": "ルール追加", "briefing": "編集後のbriefing。"}', 100, 50)
+        # 台本生成: baseline は悪い台本、編集後は良い台本
+        calls["n"] += 1
+        text = BAD if "元の" in briefing else GOOD
+        return (text, 500, 300)
+
+    import open_notebook.database.repository as repo_mod
+
+    monkeypatch.setattr(repo_mod, "repo_query", fake_repo_query)
+    monkeypatch.setattr(bandit_mod, "generate_with_model", fake_generate)
+
+    args = argparse.Namespace(
+        audiobook="audiobook:x", profile="book_navigator", chapters=1, steps=2,
+        gen_model="anthropic:claude-haiku-4-5", token_penalty=0.05,
+        max_tokens=1_000_000, state=str(tmp_path / "state.json"),
+        log=str(tmp_path / "log.jsonl"), apply=True,
+    )
+    with patch.object(bandit_mod.ThompsonBandit, "sample", return_value="add_rule"):
+        asyncio.run(bandit_mod.optimize(args))
+
+    # 学習状態が永続化され、成功が α に反映されている
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert state["arms"]["add_rule"][0] > 1.0
+    # (状態, 行動, 報酬) ログが残る
+    lines = (tmp_path / "log.jsonl").read_text().strip().splitlines()
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    assert first["action"] == "add_rule" and first["success"] is True
+    # --apply で改善後 briefing が書き戻される
+    assert fake_repo_query.applied is not None
+    assert fake_repo_query.applied["b"] == "編集後のbriefing。"

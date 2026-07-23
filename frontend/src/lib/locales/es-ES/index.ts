@@ -472,6 +472,8 @@ export const esES = {
     askYourKbDesc: "El LLM responderá tu consulta basándose en los documentos de tu base de conocimiento.",
     question: "Pregunta",
     enterQuestionPlaceholder: "Escribe tu pregunta...",
+    askScope: "Ámbito de búsqueda",
+    askScopeAll: "Toda la biblioteca",
     pressToSubmit: "Presiona Cmd/Ctrl+Enter para enviar",
     noEmbeddingModel: "No puedes usar esta función porque no tienes un modelo de embedding seleccionado. Por favor, configura uno en la página de Modelos.",
     usingCustomModels: "Usando modelos personalizados",

@@ -472,6 +472,8 @@ export const ptBR = {
     askYourKbDesc: "O LLM responderá sua consulta com base nos documentos da sua base de conhecimento.",
     question: "Pergunta",
     enterQuestionPlaceholder: "Digite sua pergunta...",
+    askScope: "Escopo da busca",
+    askScopeAll: "Toda a biblioteca",
     pressToSubmit: "Pressione Cmd/Ctrl+Enter para enviar",
     noEmbeddingModel: "Você não pode usar este recurso porque não tem um modelo de embedding selecionado. Configure um na página de Modelos.",
     usingCustomModels: "Usando Modelos Personalizados",

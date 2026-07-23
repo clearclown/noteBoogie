@@ -5,9 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { QUERY_KEYS } from '@/lib/api/query-client'
 import {
+  useActivatePersona,
+  useApplySlideFixes,
   useConsultMentor,
   useDeleteMemory,
   useMentorMessages,
+  useMentorPersonas,
+  useReviewSlides,
+  useSlideReviews,
   type DisplayMessage,
 } from './use-mentor'
 
@@ -20,6 +25,12 @@ vi.mock('@/lib/api/mentor', () => ({
     speak: vi.fn(),
     getWeights: vi.fn(),
     updateWeight: vi.fn(),
+    listSlideReviews: vi.fn(),
+    reviewSlides: vi.fn(),
+    applySlideFixes: vi.fn(),
+    listPersonas: vi.fn(),
+    upsertPersona: vi.fn(),
+    activatePersona: vi.fn(),
   },
 }))
 
@@ -118,5 +129,89 @@ describe('useDeleteMemory', () => {
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.mentorMemories })
     )
+  })
+})
+
+describe('slide review hooks', () => {
+  it('useSlideReviews loads history', async () => {
+    vi.mocked(mentorApi.listSlideReviews).mockResolvedValue([
+      { id: 'slide_review:r1' } as never,
+    ])
+    const { wrapper } = makeWrapper()
+    const { result } = renderHook(() => useSlideReviews(), { wrapper })
+    await waitFor(() => expect(result.current.data).toHaveLength(1))
+  })
+
+  it('useReviewSlides uploads and invalidates the history', async () => {
+    vi.mocked(mentorApi.reviewSlides).mockResolvedValue({ id: 'slide_review:r2' } as never)
+    const { client, wrapper } = makeWrapper()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    const { result } = renderHook(() => useReviewSlides(), { wrapper })
+    const file = new File([new Uint8Array([1])], 'deck.pdf')
+    act(() => result.current.mutate(file))
+    await waitFor(() => {
+      expect(mentorApi.reviewSlides).toHaveBeenCalledWith(file)
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: QUERY_KEYS.slideReviews,
+      })
+    })
+  })
+
+  it('useApplySlideFixes downloads the coached deck as <name>_coached.pptx', async () => {
+    vi.mocked(mentorApi.applySlideFixes).mockResolvedValue(new Blob([new Uint8Array([1])]))
+    const createObjectURL = vi.fn(() => 'blob:coached')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {})
+
+    const { wrapper } = makeWrapper()
+    const { result } = renderHook(() => useApplySlideFixes(), { wrapper })
+    act(() =>
+      result.current.mutate({
+        reviewId: 'slide_review:r1',
+        issueIds: ['normalize_fonts@0'],
+        filename: '提案書.pptx',
+      })
+    )
+    await waitFor(() => {
+      expect(mentorApi.applySlideFixes).toHaveBeenCalledWith('slide_review:r1', [
+        'normalize_fonts@0',
+      ])
+      expect(click).toHaveBeenCalled()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:coached')
+    })
+    click.mockRestore()
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('persona hooks', () => {
+  it('useMentorPersonas lists profiles', async () => {
+    vi.mocked(mentorApi.listPersonas).mockResolvedValue([
+      { name: 'default', persona: 'p', active: true },
+    ])
+    const { wrapper } = makeWrapper()
+    const { result } = renderHook(() => useMentorPersonas(), { wrapper })
+    await waitFor(() => expect(result.current.data?.[0].name).toBe('default'))
+  })
+
+  it('useActivatePersona switches and invalidates', async () => {
+    vi.mocked(mentorApi.activatePersona).mockResolvedValue({
+      name: 'engineer',
+      persona: 'p',
+      active: true,
+    })
+    const { client, wrapper } = makeWrapper()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    const { result } = renderHook(() => useActivatePersona(), { wrapper })
+    act(() => result.current.mutate('engineer'))
+    await waitFor(() => {
+      expect(mentorApi.activatePersona).toHaveBeenCalledWith('engineer')
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: QUERY_KEYS.mentorPersona,
+      })
+    })
   })
 })

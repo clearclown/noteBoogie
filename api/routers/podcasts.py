@@ -119,6 +119,7 @@ class PodcastEpisodeResponse(BaseModel):
     created: Optional[str] = None
     job_status: Optional[str] = None
     error_message: Optional[str] = None
+    feedback: Optional[str] = None
 
 
 @router.post("/podcasts/generate", response_model=PodcastGenerationResponse)
@@ -243,6 +244,7 @@ async def list_podcast_episodes():
                     created=str(episode.created) if episode.created else None,
                     job_status=job_status,
                     error_message=error_message,
+                    feedback=episode.feedback,
                 )
             )
 
@@ -307,6 +309,7 @@ async def get_podcast_episode(episode_id: str):
             created=str(episode.created) if episode.created else None,
             job_status=job_status,
             error_message=error_message,
+            feedback=episode.feedback,
         )
 
     except HTTPException:

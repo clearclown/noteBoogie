@@ -132,6 +132,23 @@ async fn db_backed_handler_flows() {
     assert_eq!(chapters[0]["name"], "第1章：第一章 序");
     assert_eq!(chapters[1]["name"], "第2章：第二章 本論");
     assert!(chapters[0]["audio_file"].is_null());
+    assert!(chapters[0]["feedback"].is_null(), "unrated chapter -> null feedback");
+
+    // --- feedback set via the API side (episode.feedback) surfaces in the
+    //     chapter projection the tracklist renders ---
+    let ch0 = chapters[0]["id"].as_str().unwrap().to_string();
+    db::get()
+        .unwrap()
+        .query(format!(
+            "UPDATE {ch0} SET feedback = 'up' RETURN NONE"
+        ))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let resp = router().handle(get(&format!("/audiobooks/{id}"))).await.unwrap();
+    let refreshed = json_body(&resp);
+    assert_eq!(refreshed["chapters"][0]["feedback"], "up");
 
     // --- GET detail with a URL-ENCODED id (what the frontend actually sends;
     //     found broken by a live-browser check the mocked e2e couldn't catch) ---

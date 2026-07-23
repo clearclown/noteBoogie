@@ -472,6 +472,8 @@ export const bnIN = {
     askYourKbDesc: "LLM আপনার জ্ঞানভান্ডারের ভিত্তিতে আপনার প্রশ্নের উত্তর দেবে।",
     question: "প্রশ্ন",
     enterQuestionPlaceholder: "আপনার প্রশ্ন লিখুন...",
+    askScope: "অনুসন্ধানের পরিসর",
+    askScopeAll: "সম্পূর্ণ লাইব্রেরি",
     pressToSubmit: "জমা দিতে Cmd/Ctrl+Enter চাপুন",
     noEmbeddingModel: "আপনি এই ফিচারটি ব্যবহার করতে পারবেন না কারণ কোনো এমবেডিং মডেল নির্বাচিত নেই। অনুগ্রহ করে Models পেজে একটি সেট করুন।",
     usingCustomModels: "কাস্টম মডেল ব্যবহার করা হচ্ছে",

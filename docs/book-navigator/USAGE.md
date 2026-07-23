@@ -88,7 +88,8 @@ claude mcp add book-navigator -- \
 |---|---|
 | `list_books()` | 蔵書一覧 |
 | `search_books(query, limit)` | 意味検索（チャンク+出典） |
-| `ask_book(question)` | 本文グラウンディング回答（`[source:…]` 引用付き） |
+| `ask_book(question, notebook_id?)` | 本文グラウンディング回答（`[source:…]` 引用付き。`notebook_id` でスコープ限定可） |
+| `consult_mentor(message)` | 師匠AIとの壁打ち（記憶+蔵書RAG+傾斜） |
 | `list_figures(source_id)` | 図のキャプション一覧 |
 
 疎通確認: `uv run --env-file .env python scripts/book_mcp_server.py --selftest`

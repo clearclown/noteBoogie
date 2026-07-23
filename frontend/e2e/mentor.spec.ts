@@ -50,6 +50,11 @@ async function mockBackends(page: Page) {
   await page.route(`${API}/api/settings*`, (route) => route.fulfill({ json: {} }))
 
   // Mentor surface: conversation starts empty, memories fill in after consult.
+  await page.route(`${API}/api/mentor/personas`, (route) =>
+    route.fulfill({
+      json: [{ name: 'default', persona: 'コンサルの師匠です。', active: true }],
+    })
+  )
   let consulted = false
   await page.route(`${API}/api/mentor/messages*`, (route) =>
     route.fulfill({ json: [] })

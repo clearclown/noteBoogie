@@ -15,8 +15,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Search, ChevronDown, AlertCircle, Settings, Save, MessageCircleQuestion } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useSearch } from '@/lib/hooks/use-search'
 import { useAsk } from '@/lib/hooks/use-ask'
+import { useNotebooks } from '@/lib/hooks/use-notebooks'
 import { useModelDefaults, useModels } from '@/lib/hooks/use-models'
 import { useModalManager } from '@/lib/hooks/use-modal-manager'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -45,6 +47,8 @@ export default function SearchPage() {
 
   // Ask state
   const [askQuestion, setAskQuestion] = useState(urlMode === 'ask' ? urlQuery : '')
+  // 検索スコープ（'all' = 全蔵書、それ以外 = notebook id）
+  const [askScope, setAskScope] = useState<string>('all')
 
   // Advanced models dialog
   const [showAdvancedModels, setShowAdvancedModels] = useState(false)
@@ -60,6 +64,7 @@ export default function SearchPage() {
   // Hooks
   const searchMutation = useSearch()
   const ask = useAsk()
+  const { data: notebooks } = useNotebooks(false)
   const { data: modelDefaults, isLoading: modelsLoading } = useModelDefaults()
   const { data: availableModels } = useModels()
   const { openModal } = useModalManager()
@@ -110,8 +115,8 @@ export default function SearchPage() {
       finalAnswer: modelDefaults.default_chat_model
     }
 
-    ask.sendAsk(askQuestion, models)
-  }, [askQuestion, modelDefaults, customModels, ask])
+    ask.sendAsk(askQuestion, models, askScope === 'all' ? undefined : askScope)
+  }, [askQuestion, modelDefaults, customModels, ask, askScope])
 
   // Auto-trigger search/ask when arriving with URL params
   useEffect(() => {
@@ -206,6 +211,24 @@ export default function SearchPage() {
                     aria-label={t('common.accessibility.enterQuestion')}
                   />
                   <p className="text-xs text-muted-foreground">{t('searchPage.pressToSubmit')}</p>
+                </div>
+
+                {/* Scope selector: whole library or one notebook */}
+                <div className="space-y-2">
+                  <Label>{t('searchPage.askScope')}</Label>
+                  <Select value={askScope} onValueChange={setAskScope} disabled={ask.isStreaming}>
+                    <SelectTrigger className="w-full sm:w-72" aria-label={t('searchPage.askScope')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('searchPage.askScopeAll')}</SelectItem>
+                      {(notebooks ?? []).map((notebook) => (
+                        <SelectItem key={notebook.id} value={notebook.id}>
+                          {notebook.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Models Display */}

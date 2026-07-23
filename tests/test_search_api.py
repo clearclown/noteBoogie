@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -102,3 +102,115 @@ class TestTextSearchHighlightOverflowFallback:
         ):
             with pytest.raises(DatabaseOperationError):
                 await notebook_module.text_search("hello", 10)
+
+
+# ---------------------------------------------------------------------------
+# Ask endpoints (notebook_id passthrough — Book Navigator)
+# ---------------------------------------------------------------------------
+
+
+def _three_models():
+    model = MagicMock()
+    model.id = "model:m1"
+    return model
+
+
+class TestAskEndpoints:
+    @pytest.mark.asyncio
+    @patch("api.routers.search.model_manager")
+    @patch("api.routers.search.Model")
+    async def test_ask_simple_threads_notebook_id_into_graph_config(
+        self, mock_model, mock_manager, client
+    ):
+        mock_model.get = AsyncMock(return_value=_three_models())
+        mock_manager.get_embedding_model = AsyncMock(return_value=MagicMock())
+        captured = {}
+
+        def fake_astream(input=None, config=None, stream_mode=None):
+            captured["input"] = input
+            captured["config"] = config
+
+            async def gen():
+                yield {"write_final_answer": {"final_answer": "回答"}}
+
+            return gen()
+
+        with patch("api.routers.search.ask_graph") as mock_graph:
+            mock_graph.astream = fake_astream
+            response = client.post(
+                "/api/search/ask/simple",
+                json={
+                    "question": "仮説思考とは",
+                    "strategy_model": "model:m1",
+                    "answer_model": "model:m1",
+                    "final_answer_model": "model:m1",
+                    "notebook_id": "notebook:x",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["answer"] == "回答"
+        assert captured["config"]["configurable"]["notebook_id"] == "notebook:x"
+
+    @pytest.mark.asyncio
+    @patch("api.routers.search.model_manager")
+    @patch("api.routers.search.Model")
+    async def test_ask_simple_defaults_to_global_scope(
+        self, mock_model, mock_manager, client
+    ):
+        mock_model.get = AsyncMock(return_value=_three_models())
+        mock_manager.get_embedding_model = AsyncMock(return_value=MagicMock())
+        captured = {}
+
+        def fake_astream(input=None, config=None, stream_mode=None):
+            captured["config"] = config
+
+            async def gen():
+                yield {"write_final_answer": {"final_answer": "回答"}}
+
+            return gen()
+
+        with patch("api.routers.search.ask_graph") as mock_graph:
+            mock_graph.astream = fake_astream
+            response = client.post(
+                "/api/search/ask/simple",
+                json={
+                    "question": "q",
+                    "strategy_model": "model:m1",
+                    "answer_model": "model:m1",
+                    "final_answer_model": "model:m1",
+                },
+            )
+        assert response.status_code == 200
+        assert captured["config"]["configurable"]["notebook_id"] is None
+
+    @pytest.mark.asyncio
+    @patch("api.routers.search.model_manager")
+    @patch("api.routers.search.Model")
+    async def test_ask_streaming_endpoint_returns_sse(
+        self, mock_model, mock_manager, client
+    ):
+        mock_model.get = AsyncMock(return_value=_three_models())
+        mock_manager.get_embedding_model = AsyncMock(return_value=MagicMock())
+
+        def fake_astream(input=None, config=None, stream_mode=None):
+            async def gen():
+                yield {"write_final_answer": {"final_answer": "回答"}}
+
+            return gen()
+
+        with patch("api.routers.search.ask_graph") as mock_graph:
+            mock_graph.astream = fake_astream
+            response = client.post(
+                "/api/search/ask",
+                json={
+                    "question": "q",
+                    "strategy_model": "model:m1",
+                    "answer_model": "model:m1",
+                    "final_answer_model": "model:m1",
+                    "notebook_id": "notebook:x",
+                },
+            )
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert "final_answer" in response.text

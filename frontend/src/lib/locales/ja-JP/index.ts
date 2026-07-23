@@ -472,6 +472,8 @@ export const jaJP = {
     askYourKbDesc: "LLMがナレッジベース内のドキュメントに基づいてクエリに回答します。",
     question: "質問",
     enterQuestionPlaceholder: "質問を入力...",
+    askScope: "検索範囲",
+    askScopeAll: "全蔵書",
     pressToSubmit: "Cmd/Ctrl+Enterで送信",
     noEmbeddingModel: "Embeddingモデルが選択されていないため、この機能は使用できません。モデルページで設定してください。",
     usingCustomModels: "カスタムモデルを使用中",

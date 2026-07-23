@@ -475,6 +475,8 @@ export const deDE = {
     askYourKbDesc: "Das KI-Modell beantwortet deine Anfrage anhand der Dokumente in deiner Wissensbasis.",
     question: "Frage",
     enterQuestionPlaceholder: "Frage eingeben...",
+    askScope: "Suchbereich",
+    askScopeAll: "Gesamte Bibliothek",
     pressToSubmit: "Drücke Cmd/Ctrl+Enter zum Absenden",
     noEmbeddingModel: "Du kannst diese Funktion nicht nutzen, weil kein Embedding-Modell ausgewählt ist. Bitte richte eines auf der Modellseite ein.",
     usingCustomModels: "Benutzerdefinierte Modelle werden verwendet",

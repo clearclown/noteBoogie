@@ -35,6 +35,8 @@ export interface AskRequest {
   strategy_model: string
   answer_model: string
   final_answer_model: string
+  /** 検索をこのノートブックの蔵書に限定（未指定は全蔵書） */
+  notebook_id?: string | null
 }
 
 export interface AskResponse {
