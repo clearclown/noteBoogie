@@ -133,6 +133,13 @@ async fn db_backed_handler_flows() {
     assert_eq!(chapters[1]["name"], "第2章：第二章 本論");
     assert!(chapters[0]["audio_file"].is_null());
 
+    // --- GET detail with a URL-ENCODED id (what the frontend actually sends;
+    //     found broken by a live-browser check the mocked e2e couldn't catch) ---
+    let encoded = id.replace(':', "%3A");
+    let resp = router().handle(get(&format!("/audiobooks/{encoded}"))).await.unwrap();
+    assert_eq!(resp.status, StatusCode::OK, "encoded record ids must decode");
+    assert_eq!(json_body(&resp)["name"], "Roundtrip Book");
+
     // --- list shows the audiobook ---
     let resp = router().handle(get("/audiobooks")).await.unwrap();
     assert_eq!(resp.status, StatusCode::OK);

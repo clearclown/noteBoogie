@@ -21,6 +21,31 @@ fn require_db() -> Result<&'static surrealdb::Surreal<surrealdb::engine::any::An
     db::get().ok_or_else(|| server_error("database not initialized"))
 }
 
+/// Percent-decode a path parameter. Clients (the frontend included) URL-encode
+/// record ids ("audiobook%3Axyz"); the router hands the segment through raw,
+/// so without this every encoded id 404s. Invalid escapes pass through as-is.
+fn decode_id(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if let Some(hex) = bytes.get(i + 1..i + 3) {
+                if let Ok(value) =
+                    u8::from_str_radix(std::str::from_utf8(hex).unwrap_or(""), 16)
+                {
+                    out.push(value);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| raw.to_string())
+}
+
 #[get("/health")]
 pub async fn health() -> ViewResult<Response> {
     Response::ok()
@@ -42,6 +67,7 @@ pub async fn list_audiobooks() -> ViewResult<Response> {
 
 #[get("/audiobooks/{id}")]
 pub async fn get_audiobook(Path(id): Path<String>) -> ViewResult<Response> {
+    let id = decode_id(&id);
     let db = match require_db() {
         Ok(db) => db,
         Err(r) => return Ok(r),
@@ -65,6 +91,7 @@ pub async fn get_audiobook(Path(id): Path<String>) -> ViewResult<Response> {
 
 #[delete("/audiobooks/{id}")]
 pub async fn delete_audiobook(Path(id): Path<String>) -> ViewResult<Response> {
+    let id = decode_id(&id);
     let db = match require_db() {
         Ok(db) => db,
         Err(r) => return Ok(r),
@@ -99,6 +126,7 @@ pub async fn delete_audiobook(Path(id): Path<String>) -> ViewResult<Response> {
 /// frontend figure gallery (grouped client-side by chapter_index).
 #[get("/audiobooks/{id}/figures")]
 pub async fn get_audiobook_figures(Path(id): Path<String>) -> ViewResult<Response> {
+    let id = decode_id(&id);
     let db = match require_db() {
         Ok(db) => db,
         Err(r) => return Ok(r),
@@ -125,6 +153,7 @@ pub async fn get_audiobook_figures(Path(id): Path<String>) -> ViewResult<Respons
 /// by the ingest pipeline), never from the request — no traversal surface.
 #[get("/figures/{id}/image")]
 pub async fn get_figure_image(Path(id): Path<String>) -> ViewResult<Response> {
+    let id = decode_id(&id);
     let db = match require_db() {
         Ok(db) => db,
         Err(r) => return Ok(r),
@@ -179,6 +208,7 @@ pub async fn get_figure_image(Path(id): Path<String>) -> ViewResult<Response> {
 /// Re-run one failed (or stuck) chapter's generation using its stored inputs.
 #[post("/chapters/{id}/retry")]
 pub async fn retry_chapter(Path(id): Path<String>) -> ViewResult<Response> {
+    let id = decode_id(&id);
     let db = match require_db() {
         Ok(db) => db,
         Err(r) => return Ok(r),
@@ -431,4 +461,22 @@ pub async fn generate_audiobook(
         status: "processing".to_string(),
     };
     Response::created().with_json(&body).map_err(Into::into)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::decode_id;
+
+    #[test]
+    fn decodes_percent_escapes() {
+        assert_eq!(decode_id("audiobook%3Aabc"), "audiobook:abc");
+        assert_eq!(decode_id("episode%3Ax%2Fy"), "episode:x/y");
+        // Already-decoded ids pass through untouched.
+        assert_eq!(decode_id("audiobook:abc"), "audiobook:abc");
+        // Invalid/truncated escapes degrade gracefully.
+        assert_eq!(decode_id("abc%GZdef"), "abc%GZdef");
+        assert_eq!(decode_id("abc%2"), "abc%2");
+        assert_eq!(decode_id("%E3%81%82"), "あ");
+    }
 }
