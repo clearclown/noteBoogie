@@ -531,6 +531,8 @@ export const jaJP = {
     audiobookGenerateError: "生成を開始できませんでした。ゲートウェイは起動していますか？",
     audiobooksTab: "オーディオブック",
     audiobooksEmpty: "オーディオブックはまだありません。本を変換して `make ingest-book` で生成してください。",
+    chapterFeedbackUp: "この章は良かった",
+    chapterFeedbackDown: "この章はいまいち",
     audiobookChapters: "チャプター",
     audiobookChapterCount: "全{{count}}章",
     audiobookAutoAdvance: "連続再生",
@@ -1046,5 +1048,7 @@ export const jaJP = {
     applyFixes: "{{count}}件を適用してダウンロード",
     applyDone: "修正版をダウンロードしました",
     applyError: "修正の適用に失敗しました",
+    discussReview: "相談で深掘り",
+    discussPrefill: "「{{filename}}」のレビュー（総合 {{overall}}/5）について深掘りしたいです。最優先の直しは「{{fix}}」とのことですが、どこから手を付けるべきですか？",
   },
 } satisfies TranslationShape;

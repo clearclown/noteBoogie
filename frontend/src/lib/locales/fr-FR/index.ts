@@ -531,6 +531,8 @@ export const frFR = {
     audiobookGenerateError: "Impossible de lancer la génération. La passerelle est-elle démarrée ?",
     audiobooksTab: "Livres audio",
     audiobooksEmpty: "Aucun livre audio pour l'instant. Convertissez un livre et générez-en un avec `make ingest-book`.",
+    chapterFeedbackUp: "Bon chapitre",
+    chapterFeedbackDown: "Chapitre faible",
     audiobookChapters: "Chapitres",
     audiobookChapterCount: "{{count}} chapitres",
     audiobookAutoAdvance: "Lecture continue",
@@ -1046,5 +1048,7 @@ export const frFR = {
     applyFixes: "Appliquer {{count}} corrections et télécharger",
     applyDone: "Deck corrigé téléchargé",
     applyError: "Impossible d'appliquer les corrections",
+    discussReview: "Approfondir avec le mentor",
+    discussPrefill: "Je voudrais approfondir la relecture de « {{filename}} » (note {{overall}}/5). La correction prioritaire est « {{fix}} » — par où commencer ?",
   },
 } satisfies TranslationShape;

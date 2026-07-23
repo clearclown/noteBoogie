@@ -206,6 +206,17 @@ test('slides tab: upload -> rubric result with gate badge', async ({ page }) => 
   await expect(
     result.getByText('コンサル頭のつくり方', { exact: true })
   ).toBeVisible()
+  await expect(page.getByTestId('axis-radar')).toBeVisible()
+
+  // 深掘りボタン → 相談タブへ引き継ぎ（下書きにファイル名が入る）
+  await result
+    .getByRole('button', { name: /相談で深掘り|Discuss with mentor/ })
+    .click()
+  await expect(page.getByRole('tab', { name: /相談|Consult/ })).toHaveAttribute(
+    'data-state',
+    'active'
+  )
+  await expect(page.getByRole('textbox')).toHaveValue(/deck\.png/)
 })
 
 test('weights tab lists books with sliders and auto-factor badge', async ({

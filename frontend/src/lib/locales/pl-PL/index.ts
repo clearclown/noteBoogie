@@ -531,6 +531,8 @@ export const plPL = {
     audiobookGenerateError: "Nie udało się rozpocząć generowania. Czy brama działa?",
     audiobooksTab: "Audiobooki",
     audiobooksEmpty: "Brak audiobooków. Przekonwertuj książkę i wygeneruj audiobook poleceniem `make ingest-book`.",
+    chapterFeedbackUp: "Dobry rozdział",
+    chapterFeedbackDown: "Słaby rozdział",
     audiobookChapters: "Rozdziały",
     audiobookChapterCount: "{{count}} rozdziałów",
     audiobookAutoAdvance: "Automatyczne przejście",
@@ -1046,5 +1048,7 @@ export const plPL = {
     applyFixes: "Zastosuj {{count}} poprawek i pobierz",
     applyDone: "Poprawiony plik pobrany",
     applyError: "Nie udało się zastosować poprawek",
+    discussReview: "Omów z mentorem",
+    discussPrefill: "Chcę zgłębić recenzję „{{filename}}” (ocena {{overall}}/5). Priorytetowa poprawka: „{{fix}}” — od czego zacząć?",
   },
 } satisfies TranslationShape;

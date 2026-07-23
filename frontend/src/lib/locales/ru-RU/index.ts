@@ -531,6 +531,8 @@ export const ruRU = {
     audiobookGenerateError: "Не удалось запустить генерацию. Запущен ли шлюз?",
     audiobooksTab: "Аудиокниги",
     audiobooksEmpty: "Аудиокниг пока нет. Конвертируйте книгу и создайте её командой `make ingest-book`.",
+    chapterFeedbackUp: "Хорошая глава",
+    chapterFeedbackDown: "Слабая глава",
     audiobookChapters: "Главы",
     audiobookChapterCount: "{{count}} глав",
     audiobookAutoAdvance: "Автопереход",
@@ -1046,5 +1048,7 @@ export const ruRU = {
     applyFixes: "Применить {{count}} исправлений и скачать",
     applyDone: "Исправленный файл скачан",
     applyError: "Не удалось применить исправления",
+    discussReview: "Обсудить с наставником",
+    discussPrefill: "Хочу разобрать рецензию на «{{filename}}» (оценка {{overall}}/5). Приоритетное исправление: «{{fix}}» — с чего начать?",
   },
 } satisfies TranslationShape;

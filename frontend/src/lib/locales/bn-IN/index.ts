@@ -531,6 +531,8 @@ export const bnIN = {
     audiobookGenerateError: "তৈরি শুরু করা যায়নি। গেটওয়ে কি চালু আছে?",
     audiobooksTab: "অডিওবুক",
     audiobooksEmpty: "এখনও কোনো অডিওবুক নেই। একটি বই রূপান্তর করে `make ingest-book` দিয়ে তৈরি করুন।",
+    chapterFeedbackUp: "ভাল অধ্যায়",
+    chapterFeedbackDown: "দুর্বল অধ্যায়",
     audiobookChapters: "অধ্যায়",
     audiobookChapterCount: "{{count}}টি অধ্যায়",
     audiobookAutoAdvance: "স্বয়ংক্রিয় পরবর্তী",
@@ -1047,5 +1049,7 @@ export const bnIN = {
     applyFixes: "{{count}}টি সংশোধন প্রয়োগ করে ডাউনলোড",
     applyDone: "সংশোধিত ফাইল ডাউনলোড হয়েছে",
     applyError: "সংশোধন প্রয়োগ করা যায়নি",
+    discussReview: "মেন্টরের সাথে আলোচনা",
+    discussPrefill: "“{{filename}}”-এর পর্যালোচনা (মোট {{overall}}/5) নিয়ে গভীরে যেতে চাই। অগ্রাধিকার সংশোধন: “{{fix}}” — কোথা থেকে শুরু করব?",
   },
 } satisfies TranslationShape;

@@ -534,6 +534,8 @@ export const deDE = {
     audiobookGenerateError: "Erzeugung konnte nicht gestartet werden. Läuft das Gateway?",
     audiobooksTab: "Hörbücher",
     audiobooksEmpty: "Noch keine Hörbücher. Konvertiere ein Buch und erzeuge eins mit `make ingest-book`.",
+    chapterFeedbackUp: "Gutes Kapitel",
+    chapterFeedbackDown: "Schwaches Kapitel",
     audiobookChapters: "Kapitel",
     audiobookChapterCount: "{{count}} Kapitel",
     audiobookAutoAdvance: "Automatisch fortsetzen",
@@ -1049,5 +1051,7 @@ export const deDE = {
     applyFixes: "{{count}} Korrekturen anwenden & herunterladen",
     applyDone: "Korrigiertes Deck heruntergeladen",
     applyError: "Korrekturen konnten nicht angewendet werden",
+    discussReview: "Mit dem Mentor vertiefen",
+    discussPrefill: "Ich möchte das Review von „{{filename}}“ vertiefen (Gesamt {{overall}}/5). Wichtigste Korrektur: „{{fix}}“ — womit fange ich an?",
   },
 } satisfies TranslationShape;

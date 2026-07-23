@@ -44,7 +44,7 @@ function EmptyState({ onPick }: { onPick: (question: string) => void }) {
   )
 }
 
-export function MentorChat() {
+export function MentorChat({ draft }: { draft?: string }) {
   const { t } = useTranslation()
   const { data: messages, isLoading } = useMentorMessages()
   const consult = useConsultMentor()
@@ -88,7 +88,11 @@ export function MentorChat() {
         )}
         <div ref={bottomRef} />
       </div>
-      <MentorComposer onSend={(message) => consult.mutate(message)} sending={consult.isPending} />
+      <MentorComposer
+        onSend={(message) => consult.mutate(message)}
+        sending={consult.isPending}
+        draft={draft}
+      />
     </div>
   )
 }

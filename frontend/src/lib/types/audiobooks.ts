@@ -16,6 +16,7 @@ export interface AudiobookChapter {
   audio_file: string | null
   /** Permanent generation failure message (null while pending/succeeded). */
   generation_error?: string | null
+  feedback?: 'up' | 'down' | null
 }
 
 export interface Audiobook {

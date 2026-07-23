@@ -7,8 +7,11 @@ import {
   Download,
   FileUp,
   Loader2,
+  MessageCircle,
   XCircle,
 } from 'lucide-react'
+
+import { AxisRadar } from './AxisRadar'
 
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -49,7 +52,13 @@ function GateBadge({ review }: { review: SlideReview }) {
   )
 }
 
-function ReviewResult({ review }: { review: SlideReview }) {
+function ReviewResult({
+  review,
+  onDiscuss,
+}: {
+  review: SlideReview
+  onDiscuss?: (review: SlideReview) => void
+}) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const applyFixes = useApplySlideFixes()
@@ -90,7 +99,15 @@ function ReviewResult({ review }: { review: SlideReview }) {
         </p>
       )}
 
-      <ul className="space-y-3">
+      <div className="flex items-start gap-4">
+        <AxisRadar
+          axes={review.axes.map((axis) => ({
+            key: axis.key,
+            label: t(AXIS_LABEL_KEYS[axis.key] ?? axis.key),
+            score: axis.score,
+          }))}
+        />
+        <ul className="min-w-0 flex-1 space-y-3">
         {review.axes.map((axis) => (
           <li key={axis.key} data-testid={`axis-${axis.key}`}>
             <div className="mb-1 flex items-center gap-2 text-sm">
@@ -131,7 +148,8 @@ function ReviewResult({ review }: { review: SlideReview }) {
             )}
           </li>
         ))}
-      </ul>
+        </ul>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         {review.citations.map((citation) => (
@@ -140,6 +158,17 @@ function ReviewResult({ review }: { review: SlideReview }) {
             {citation.title}
           </Badge>
         ))}
+        {onDiscuss && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => onDiscuss(review)}
+          >
+            <MessageCircle className="h-4 w-4" />
+            {t('mentor.discussReview')}
+          </Button>
+        )}
         {review.kind === 'pptx' && applicableCount > 0 && review.id && (
           <Button
             size="sm"
@@ -166,7 +195,11 @@ function ReviewResult({ review }: { review: SlideReview }) {
   )
 }
 
-export function MentorSlidesTab() {
+export function MentorSlidesTab({
+  onDiscuss,
+}: {
+  onDiscuss?: (review: SlideReview) => void
+}) {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const review = useReviewSlides()
@@ -209,13 +242,13 @@ export function MentorSlidesTab() {
         }}
       />
 
-      {latest && <ReviewResult review={latest} />}
+      {latest && <ReviewResult review={latest} onDiscuss={onDiscuss} />}
 
       {past.length > 0 && (
         <div className="space-y-2">
           <p className="text-sm font-medium">{t('mentor.slideHistory')}</p>
           {past.map((item) => (
-            <ReviewResult key={item.id} review={item} />
+            <ReviewResult key={item.id} review={item} onDiscuss={onDiscuss} />
           ))}
         </div>
       )}

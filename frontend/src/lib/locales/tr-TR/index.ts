@@ -531,6 +531,8 @@ export const trTR = {
     audiobookGenerateError: "Üretim başlatılamadı. Ağ geçidi çalışıyor mu?",
     audiobooksTab: "Sesli Kitaplar",
     audiobooksEmpty: "Henüz sesli kitap yok. Bir kitabı dönüştürüp `make ingest-book` ile oluşturun.",
+    chapterFeedbackUp: "İyi bölüm",
+    chapterFeedbackDown: "Zayıf bölüm",
     audiobookChapters: "Bölümler",
     audiobookChapterCount: "{{count}} bölüm",
     audiobookAutoAdvance: "Otomatik geçiş",
@@ -1046,5 +1048,7 @@ export const trTR = {
     applyFixes: "{{count}} düzeltmeyi uygula ve indir",
     applyDone: "Düzeltilmiş dosya indirildi",
     applyError: "Düzeltmeler uygulanamadı",
+    discussReview: "Mentorla derinleştir",
+    discussPrefill: "“{{filename}}” incelemesini derinleştirmek istiyorum (genel {{overall}}/5). Öncelikli düzeltme: “{{fix}}” — nereden başlamalıyım?",
   },
 } satisfies TranslationShape;

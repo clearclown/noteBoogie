@@ -531,6 +531,8 @@ export const ptBR = {
     audiobookGenerateError: "Falha ao iniciar a geração. O gateway está em execução?",
     audiobooksTab: "Audiolivros",
     audiobooksEmpty: "Ainda não há audiolivros. Converta um livro e gere um com `make ingest-book`.",
+    chapterFeedbackUp: "Capítulo bom",
+    chapterFeedbackDown: "Capítulo fraco",
     audiobookChapters: "Capítulos",
     audiobookChapterCount: "{{count}} capítulos",
     audiobookAutoAdvance: "Avanço automático",
@@ -1046,5 +1048,7 @@ export const ptBR = {
     applyFixes: "Aplicar {{count}} correções e baixar",
     applyDone: "Deck corrigido baixado",
     applyError: "Não foi possível aplicar as correções",
+    discussReview: "Discutir com o mentor",
+    discussPrefill: "Quero aprofundar a revisão de “{{filename}}” (nota geral {{overall}}/5). A correção prioritária é “{{fix}}” — por onde começo?",
   },
 } satisfies TranslationShape;

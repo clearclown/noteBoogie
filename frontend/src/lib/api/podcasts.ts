@@ -40,6 +40,15 @@ export const podcastsApi = {
     await apiClient.delete(`/podcasts/episodes/${episodeId}`)
   },
 
+  // 章の👍/👎（null で取り消し）。RL報酬蒸留の人手シグナル
+  setEpisodeFeedback: async (episodeId: string, rating: 'up' | 'down' | null) => {
+    const response = await apiClient.put<{ id: string; feedback: string | null }>(
+      `/podcasts/episodes/${encodeURIComponent(episodeId)}/feedback`,
+      { rating }
+    )
+    return response.data
+  },
+
   retryEpisode: async (episodeId: string) => {
     const response = await apiClient.post<{ job_id: string; message: string }>(
       `/podcasts/episodes/${episodeId}/retry`

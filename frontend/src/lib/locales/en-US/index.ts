@@ -529,6 +529,8 @@ export const enUS = {
     audiobookGenerateError: "Failed to start generation. Is the gateway running?",
     audiobooksTab: "Audiobooks",
     audiobooksEmpty: "No audiobooks yet. Convert a book and generate one with `make ingest-book`.",
+    chapterFeedbackUp: "Good chapter",
+    chapterFeedbackDown: "Poor chapter",
     audiobookChapters: "Chapters",
     audiobookChapterCount: "{{count}} chapters",
     audiobookAutoAdvance: "Auto-advance",
@@ -1045,6 +1047,8 @@ export const enUS = {
     applyFixes: "Apply {{count}} fixes & download",
     applyDone: "Coached deck downloaded",
     applyError: "Could not apply the fixes",
+    discussReview: "Discuss with mentor",
+    discussPrefill: "I'd like to dig into the review of “{{filename}}” (overall {{overall}}/5). Top fix suggested: {{fix}} — where should I start?",
   },
 }
 

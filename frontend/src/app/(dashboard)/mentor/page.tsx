@@ -9,11 +9,26 @@ import { MentorChat } from '@/components/mentor/MentorChat'
 import { MentorMemoryPanel } from '@/components/mentor/MentorMemoryPanel'
 import { MentorSlidesTab } from '@/components/mentor/MentorSlidesTab'
 import { MentorWeightsTab } from '@/components/mentor/MentorWeightsTab'
+import type { SlideReview } from '@/lib/api/mentor'
 import { useTranslation } from '@/lib/hooks/use-translation'
 
 export default function MentorPage() {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'chat' | 'slides' | 'weights'>('chat')
+  const [chatDraft, setChatDraft] = useState<string | undefined>(undefined)
+
+  // スライドレビュー → 相談タブへの深掘り引き継ぎ（MENTOR_UI_DESIGN §11）
+  const discussReview = (review: SlideReview) => {
+    const failing = review.axes.filter((axis) => !axis.passed)
+    setChatDraft(
+      t('mentor.discussPrefill', {
+        filename: review.filename,
+        overall: review.overall.toFixed(1),
+        fix: review.top_fix ?? failing[0]?.issues[0]?.text ?? review.summary ?? '',
+      })
+    )
+    setActiveTab('chat')
+  }
 
   return (
     <AppShell>
@@ -46,10 +61,10 @@ export default function MentorPage() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="chat" className="mt-4">
-              <MentorChat />
+              <MentorChat draft={chatDraft} />
             </TabsContent>
             <TabsContent value="slides" className="mt-4">
-              <MentorSlidesTab />
+              <MentorSlidesTab onDiscuss={discussReview} />
             </TabsContent>
             <TabsContent value="weights" className="mt-4">
               <MentorWeightsTab />

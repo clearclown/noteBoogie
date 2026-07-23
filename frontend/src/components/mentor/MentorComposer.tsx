@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, Send } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -10,12 +10,21 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 interface MentorComposerProps {
   onSend: (message: string) => void
   sending: boolean
+  /** スライドレビュー深掘りなどからの下書き注入（変わるたびに反映） */
+  draft?: string
 }
 
-export function MentorComposer({ onSend, sending }: MentorComposerProps) {
+export function MentorComposer({ onSend, sending, draft }: MentorComposerProps) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (draft) {
+      setValue(draft)
+      textareaRef.current?.focus()
+    }
+  }, [draft])
 
   const submit = useCallback(() => {
     const message = value.trim()

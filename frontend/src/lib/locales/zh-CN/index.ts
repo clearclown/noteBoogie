@@ -531,6 +531,8 @@ export const zhCN = {
     audiobookGenerateError: "无法开始生成。网关是否已启动？",
     audiobooksTab: "有声书",
     audiobooksEmpty: "还没有有声书。请先转换书籍并使用 `make ingest-book` 生成。",
+    chapterFeedbackUp: "本章不错",
+    chapterFeedbackDown: "本章欠佳",
     audiobookChapters: "章节",
     audiobookChapterCount: "共{{count}}章",
     audiobookAutoAdvance: "自动连播",
@@ -1046,5 +1048,7 @@ export const zhCN = {
     applyFixes: "应用 {{count}} 项修改并下载",
     applyDone: "已下载修改版",
     applyError: "应用修改失败",
+    discussReview: "与导师深入讨论",
+    discussPrefill: "想深入讨论「{{filename}}」的点评（总分 {{overall}}/5）。优先修改是「{{fix}}」，我该从哪里入手？",
   },
 } satisfies TranslationShape;

@@ -531,6 +531,8 @@ export const zhTW = {
     audiobookGenerateError: "無法開始產生。閘道是否已啟動？",
     audiobooksTab: "有聲書",
     audiobooksEmpty: "還沒有有聲書。請先轉換書籍並使用 `make ingest-book` 產生。",
+    chapterFeedbackUp: "本章不錯",
+    chapterFeedbackDown: "本章欠佳",
     audiobookChapters: "章節",
     audiobookChapterCount: "共{{count}}章",
     audiobookAutoAdvance: "自動連播",
@@ -1046,5 +1048,7 @@ export const zhTW = {
     applyFixes: "套用 {{count}} 項修改並下載",
     applyDone: "已下載修改版",
     applyError: "套用修改失敗",
+    discussReview: "與導師深入討論",
+    discussPrefill: "想深入討論「{{filename}}」的點評（總分 {{overall}}/5）。優先修改是「{{fix}}」，我該從哪裡著手？",
   },
 } satisfies TranslationShape;

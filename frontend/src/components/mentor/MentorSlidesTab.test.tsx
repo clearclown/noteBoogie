@@ -122,6 +122,34 @@ describe('MentorSlidesTab', () => {
     )
   })
 
+  it('hands the review off to the chat tab via onDiscuss', async () => {
+    vi.mocked(mentorApi.reviewSlides).mockResolvedValue(REVIEW)
+    const onDiscuss = vi.fn()
+    render(<MentorSlidesTab onDiscuss={onDiscuss} />, { wrapper })
+    fireEvent.change(screen.getByTestId('slide-file-input'), {
+      target: { files: [new File([new Uint8Array([1])], 'deck.pptx')] },
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('slide-review-result')).toBeInTheDocument()
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /discussReview/ }))
+    expect(onDiscuss).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'slide_review:r1', filename: '提案書.pptx' })
+    )
+  })
+
+  it('renders the axis radar with the review scores', async () => {
+    vi.mocked(mentorApi.reviewSlides).mockResolvedValue(REVIEW)
+    render(<MentorSlidesTab />, { wrapper })
+    fireEvent.change(screen.getByTestId('slide-file-input'), {
+      target: { files: [new File([new Uint8Array([1])], 'deck.pptx')] },
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('axis-radar')).toBeInTheDocument()
+    )
+  })
+
   it('shows history reviews from the list endpoint', async () => {
     vi.mocked(mentorApi.listSlideReviews).mockResolvedValue([
       { ...REVIEW, id: 'slide_review:r2', filename: '旧提案書.pdf', kind: 'pdf' },

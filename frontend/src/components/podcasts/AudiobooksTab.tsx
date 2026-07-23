@@ -11,6 +11,8 @@ import {
   Play,
   SkipBack,
   SkipForward,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
 } from 'lucide-react'
 
@@ -28,6 +30,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { audiobooksApi } from '@/lib/api/audiobooks'
+import { podcastsApi } from '@/lib/api/podcasts'
 import { getApiUrl } from '@/lib/config'
 import {
   AUDIOBOOK_QUERY_KEYS,
@@ -290,9 +293,55 @@ function AudiobookDetailView({
                 </span>
                 <span className="flex-1 truncate">{chapter.name}</span>
                 {ready ? (
-                  active && playing ? (
-                    <Headphones className="h-4 w-4 shrink-0" />
-                  ) : null
+                  <span className="flex items-center gap-0.5 shrink-0">
+                    {active && playing ? <Headphones className="h-4 w-4" /> : null}
+                    {(['up', 'down'] as const).map((rating) => {
+                      const selected = chapter.feedback === rating
+                      const Icon = rating === 'up' ? ThumbsUp : ThumbsDown
+                      return (
+                        <Button
+                          key={rating}
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-muted-foreground"
+                          aria-label={t(
+                            rating === 'up'
+                              ? 'podcasts.chapterFeedbackUp'
+                              : 'podcasts.chapterFeedbackDown'
+                          )}
+                          aria-pressed={selected}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            // 同じ評価をもう一度押すと取り消し（null）
+                            void podcastsApi
+                              .setEpisodeFeedback(
+                                chapter.id as string,
+                                selected ? null : rating
+                              )
+                              .then(() =>
+                                queryClient.invalidateQueries({
+                                  queryKey:
+                                    AUDIOBOOK_QUERY_KEYS.audiobook(audiobookId),
+                                })
+                              )
+                              .catch((error) =>
+                                console.error('Failed to set feedback', error)
+                              )
+                          }}
+                        >
+                          <Icon
+                            className={
+                              selected
+                                ? rating === 'up'
+                                  ? 'h-3.5 w-3.5 fill-current text-emerald-600'
+                                  : 'h-3.5 w-3.5 fill-current text-destructive'
+                                : 'h-3.5 w-3.5'
+                            }
+                          />
+                        </Button>
+                      )
+                    })}
+                  </span>
                 ) : chapter.generation_error ? (
                   <span className="flex items-center gap-1 shrink-0">
                     <Badge variant="destructive" title={chapter.generation_error}>

@@ -21,6 +21,12 @@ vi.mock('@/lib/config', () => ({
   getApiUrl: vi.fn(async () => 'http://api:5055'),
 }))
 
+vi.mock('@/lib/api/podcasts', () => ({
+  podcastsApi: {
+    setEpisodeFeedback: vi.fn(),
+  },
+}))
+
 vi.mock('@/lib/hooks/use-podcasts', () => ({
   useEpisodeProfiles: () => ({
     episodeProfiles: [
@@ -45,6 +51,7 @@ vi.mock('@/lib/api/sources', () => ({
 }))
 
 import { audiobooksApi } from '@/lib/api/audiobooks'
+import { podcastsApi } from '@/lib/api/podcasts'
 
 function renderTab() {
   const client = new QueryClient({
@@ -353,5 +360,45 @@ describe('AudiobooksTab detail view', () => {
       .find((b) => b.querySelector('svg.lucide-arrow-left'))
     fireEvent.click(backButton as HTMLElement)
     await screen.findByText('コンサル頭のつくり方')
+  })
+
+  it('sends thumbs feedback for a completed chapter and toggles it off', async () => {
+    vi.mocked(podcastsApi.setEpisodeFeedback).mockResolvedValue({
+      id: 'episode:c0',
+      feedback: 'up',
+    })
+    vi.mocked(audiobooksApi.get).mockResolvedValue({
+      ...DETAIL,
+      chapters: [
+        { ...DETAIL.chapters[0], feedback: null },
+        DETAIL.chapters[1],
+        { ...DETAIL.chapters[2], feedback: 'down' },
+      ],
+    })
+    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
+    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
+    renderTab()
+    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
+    await screen.findByText('第1章：序')
+
+    // 完了章（2章）×2ボタン。生成中の章にはボタンが無い
+    const upButtons = screen.getAllByRole('button', {
+      name: 'podcasts.chapterFeedbackUp',
+    })
+    expect(upButtons).toHaveLength(2)
+
+    fireEvent.click(upButtons[0])
+    await waitFor(() =>
+      expect(podcastsApi.setEpisodeFeedback).toHaveBeenCalledWith('episode:c0', 'up')
+    )
+
+    // 既に down が付いている章の down を押すと取り消し（null）
+    const downButtons = screen.getAllByRole('button', {
+      name: 'podcasts.chapterFeedbackDown',
+    })
+    fireEvent.click(downButtons[1])
+    await waitFor(() =>
+      expect(podcastsApi.setEpisodeFeedback).toHaveBeenCalledWith('episode:c2', null)
+    )
   })
 })

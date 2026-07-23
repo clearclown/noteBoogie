@@ -531,6 +531,8 @@ export const caES = {
     audiobookGenerateError: "No s'ha pogut iniciar la generació. La passarel·la està en marxa?",
     audiobooksTab: "Audiollibres",
     audiobooksEmpty: "Encara no hi ha audiollibres. Converteix un llibre i genera'n un amb `make ingest-book`.",
+    chapterFeedbackUp: "Bon capítol",
+    chapterFeedbackDown: "Capítol fluix",
     audiobookChapters: "Capítols",
     audiobookChapterCount: "{{count}} capítols",
     audiobookAutoAdvance: "Avanç automàtic",
@@ -1046,5 +1048,7 @@ export const caES = {
     applyFixes: "Aplica {{count}} correccions i descarrega",
     applyDone: "Deck corregit descarregat",
     applyError: "No s'han pogut aplicar les correccions",
+    discussReview: "Aprofundir amb el mentor",
+    discussPrefill: "Vull aprofundir en la revisió de «{{filename}}» (nota {{overall}}/5). La correcció prioritària és «{{fix}}»: per on començo?",
   },
 } satisfies TranslationShape;

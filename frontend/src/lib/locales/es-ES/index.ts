@@ -531,6 +531,8 @@ export const esES = {
     audiobookGenerateError: "No se pudo iniciar la generación. ¿Está el gateway en ejecución?",
     audiobooksTab: "Audiolibros",
     audiobooksEmpty: "Aún no hay audiolibros. Convierte un libro y genera uno con `make ingest-book`.",
+    chapterFeedbackUp: "Buen capítulo",
+    chapterFeedbackDown: "Capítulo flojo",
     audiobookChapters: "Capítulos",
     audiobookChapterCount: "{{count}} capítulos",
     audiobookAutoAdvance: "Avance automático",
@@ -1047,5 +1049,7 @@ export const esES = {
     applyFixes: "Aplicar {{count}} correcciones y descargar",
     applyDone: "Deck corregido descargado",
     applyError: "No se pudieron aplicar las correcciones",
+    discussReview: "Profundizar con el mentor",
+    discussPrefill: "Quiero profundizar en la revisión de «{{filename}}» (nota {{overall}}/5). La corrección prioritaria es «{{fix}}»: ¿por dónde empiezo?",
   },
 } satisfies TranslationShape;
