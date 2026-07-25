@@ -279,7 +279,37 @@ async def recover_missing() -> None:
     import commands.embedding_commands  # noqa: F401  # embed_source をレジストリ登録
     from open_notebook.database.repository import repo_query
 
+    ing_sem_reingest = asyncio.Semaphore(INGEST_PARALLEL)
+
     await wait_for_stack()
+
+    # --- 0. キャプション欠落本（Anthropic 上限中に取り込まれた本）を削除→再取り込み ---
+    if os.getenv("RECOVER_REINGEST", "").strip():
+        titles = [t.strip() for t in os.getenv("RECOVER_REINGEST").split("||") if t.strip()]
+        for title in titles:
+            srcs = await repo_query(
+                "SELECT type::string(id) AS id FROM source WHERE title = $t", {"t": title})
+            for sc in srcs:
+                sid = sc["id"]
+                abs_ = await repo_query(
+                    "SELECT type::string(id) AS id FROM audiobook WHERE source_id = $s", {"s": sid})
+                for ab in abs_:
+                    await repo_query("DELETE episode WHERE type::string(audiobook) = $ab", {"ab": ab["id"]})
+                    await repo_query("DELETE type::thing($id)", {"id": ab["id"]})
+                await repo_query("DELETE book_figure WHERE type::string(source) = $s", {"s": sid})
+                await repo_query("DELETE source_embedding WHERE type::string(source) = $s", {"s": sid})
+                await repo_query("DELETE reference WHERE type::string(in) = $s", {"s": sid})
+                await repo_query("DELETE type::thing($id)", {"id": sid})
+            await repo_query("DELETE notebook WHERE name = $t", {"t": title})
+            out_dir = BOOKS_DIR / safe_dir_name(title)
+            pdf_candidates = list(BATCH_DIR.rglob(f"{title}.pdf"))
+            if out_dir.exists() and pdf_candidates:
+                sid2 = await ingest_book_dir(out_dir, pdf_candidates[0], title, ing_sem_reingest)
+                if sid2:
+                    log(f"再取り込み完了: {title} ({sid2})")
+            else:
+                log(f"再取り込みスキップ（変換dir/PDF不明）: {title}")
+
     sources = await repo_query("SELECT type::string(id) AS id, title FROM source")
     gen_sem = asyncio.Semaphore(GENERATE_PARALLEL)
     tasks = []
