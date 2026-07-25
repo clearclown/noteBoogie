@@ -218,12 +218,12 @@ class MentorService:
     async def list_messages(limit: int = 50) -> List[MentorMessageResponse]:
         from open_notebook.database.repository import repo_query
 
+        # ORDER BY はこの SDK で "No iterator" を誘発しうる → クライアント側整列
         rows = await repo_query(
             "SELECT type::string(id) AS id, role, content, sources, "
-            "type::string(created) AS created "
-            "FROM mentor_message ORDER BY created DESC LIMIT $n",
-            {"n": limit},
+            "type::string(created) AS created FROM mentor_message"
         )
+        rows = sorted(rows, key=lambda r: r.get("created") or "", reverse=True)[:limit]
         # 新しい順で取り、表示は古い→新しい順
         return [MentorMessageResponse(**row) for row in reversed(rows)]
 
@@ -233,10 +233,9 @@ class MentorService:
 
         rows = await repo_query(
             "SELECT type::string(id) AS id, question, gist, sources, "
-            "type::string(created) AS created "
-            "FROM mentor_memory ORDER BY created DESC LIMIT $n",
-            {"n": limit},
+            "type::string(created) AS created FROM mentor_memory"
         )
+        rows = sorted(rows, key=lambda r: r.get("created") or "", reverse=True)[:limit]
         return [MentorMemoryResponse(**row) for row in rows]
 
     @staticmethod
@@ -331,9 +330,11 @@ class MentorService:
         from open_notebook.database.repository import repo_query
         from open_notebook.graphs.mentor import compute_auto_factors
 
-        sources = await repo_query(
-            "SELECT type::string(id) AS id, title FROM source ORDER BY title"
-        )
+        # NOTE: `ORDER BY` on this SurrealDB SDK trips a "No iterator has been
+        # found" transaction failure on larger tables (same quirk avoided in
+        # scripts/book_mcp_server.py). Sort client-side instead.
+        sources = await repo_query("SELECT type::string(id) AS id, title FROM source")
+        sources = sorted(sources, key=lambda s: str(s.get("title") or ""))
         weight_rows = await repo_query(
             "SELECT type::string(source) AS source_id, weight, chapter_weights "
             "FROM mentor_source_weight"
@@ -341,15 +342,19 @@ class MentorService:
         weights = {r["source_id"]: r for r in weight_rows}
 
         memories = await repo_query(
-            "SELECT sources FROM mentor_memory ORDER BY created DESC LIMIT $n",
-            {"n": AUTO_FACTOR_MEMORY_WINDOW},
+            "SELECT sources, type::string(created) AS created FROM mentor_memory"
         )
+        memories = sorted(memories, key=lambda m: m.get("created") or "", reverse=True)[
+            :AUTO_FACTOR_MEMORY_WINDOW
+        ]
         auto = compute_auto_factors([m.get("sources") for m in memories])
 
         chapter_rows = await repo_query(
             "SELECT chapter_index, chapter_title, audiobook.source_id AS source_id "
-            "FROM episode WHERE audiobook != NONE AND chapter_index != NONE "
-            "ORDER BY chapter_index"
+            "FROM episode WHERE audiobook != NONE AND chapter_index != NONE"
+        )
+        chapter_rows = sorted(
+            chapter_rows, key=lambda r: r.get("chapter_index") or 0
         )
         chapters: Dict[str, List[str]] = {}
         for row in chapter_rows:

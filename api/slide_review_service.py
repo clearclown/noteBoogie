@@ -412,12 +412,13 @@ class SlideReviewService:
     async def list_reviews(limit: int = 20) -> List[SlideReviewResponse]:
         from open_notebook.database.repository import repo_query
 
+        # ORDER BY はこの SDK で "No iterator" を誘発しうる → クライアント側整列
         rows = await repo_query(
             "SELECT type::string(id) AS id, filename, kind, page_count, overall, "
             "passed, axes, summary, citations, type::string(created) AS created "
-            "FROM slide_review ORDER BY created DESC LIMIT $n",
-            {"n": limit},
+            "FROM slide_review"
         )
+        rows = sorted(rows, key=lambda r: r.get("created") or "", reverse=True)[:limit]
         reviews = []
         for row in rows:
             axes = [SlideAxis(**a) for a in row.get("axes") or []]

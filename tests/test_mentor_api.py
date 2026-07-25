@@ -256,7 +256,12 @@ async def test_get_weights_merges_manual_auto_and_chapters(mock_query, client):
     mock_query.side_effect = responses
     response = client.get("/api/mentor/weights")
     assert response.status_code == 200
+    # クライアント側整列: title 昇順（大蔵書で ORDER BY を使わない — 実障害の回帰）
     a, b = response.json()
+    assert [e["title"] for e in response.json()] == ["本A", "本B"]
+    # DB クエリに ORDER BY を含めない（"No iterator" 不具合の回避）
+    for call in mock_query.await_args_list:
+        assert "ORDER BY" not in call.args[0], f"ORDER BY leaked: {call.args[0]}"
     assert a["source_id"] == "source:a"
     assert a["weight"] == 1.5
     assert a["chapter_weights"] == {"0": 2.0}
