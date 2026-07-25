@@ -149,7 +149,7 @@ async def wait_for_stack() -> None:
             except Exception:
                 pass
             await asyncio.sleep(20)
-    raise TimeoutError("スタックが45分以内に起動しませんでした")
+    raise TimeoutError("スタックが4時間以内に起動しませんでした")
 
 
 async def convert_pdf(pdf: Path, out_dir: Path, sem: asyncio.Semaphore) -> bool:
@@ -219,39 +219,51 @@ async def generate_audiobook(title: str, source_id: str, sem: asyncio.Semaphore)
     """gateway に生成を投入し、全章の完了/失敗まで監視する。"""
     import httpx
 
+    # 1冊のネットワーク瞬断で全体の gather を巻き込まないよう、この本の範囲に
+    # 例外を閉じ込める（監査 H1: 一過性エラーで夜間バッチ全滅を防止）
     async with sem:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{GATEWAY_URL}/audiobooks/generate",
-                json={"audiobook_name": title, "source_id": source_id},
-            )
-            if resp.status_code != 201:
-                log(f"生成投入失敗: {title}: {resp.status_code} {resp.text[:200]}")
-                return {"title": title, "status": "submit_failed"}
-            audiobook_id = resp.json()["audiobook_id"]
-            chapter_count = resp.json().get("chapter_count")
-            log(f"生成開始: {title} ({chapter_count}章, {audiobook_id})")
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{GATEWAY_URL}/audiobooks/generate",
+                    json={"audiobook_name": title, "source_id": source_id},
+                )
+                if resp.status_code != 201:
+                    log(f"生成投入失敗: {title}: {resp.status_code} {resp.text[:200]}")
+                    return {"title": title, "status": "submit_failed"}
+                body = resp.json()
+                audiobook_id = body.get("audiobook_id")
+                if not audiobook_id:
+                    return {"title": title, "status": "submit_failed"}
+                log(f"生成開始: {title} ({body.get('chapter_count')}章, {audiobook_id})")
 
-            deadline = time.time() + 8 * 3600
-            while time.time() < deadline:
-                await asyncio.sleep(60)
-                detail = (
-                    await client.get(
-                        f"{GATEWAY_URL}/audiobooks/{audiobook_id.replace(':', '%3A')}"
-                    )
-                ).json()
-                chapters = detail.get("chapters") or []
-                done = sum(1 for c in chapters if c.get("audio_file"))
-                failed = sum(1 for c in chapters if c.get("generation_error"))
-                if done + failed >= len(chapters) and chapters:
-                    log(f"生成完了: {title} 成功{done}/失敗{failed}/全{len(chapters)}章")
-                    return {
-                        "title": title, "audiobook_id": audiobook_id,
-                        "status": "done", "chapters": len(chapters),
-                        "succeeded": done, "failed": failed,
-                    }
-                log(f"生成中: {title} {done+failed}/{len(chapters)}章")
-            return {"title": title, "audiobook_id": audiobook_id, "status": "timeout"}
+                deadline = time.time() + 8 * 3600
+                while time.time() < deadline:
+                    await asyncio.sleep(60)
+                    try:
+                        detail = (
+                            await client.get(
+                                f"{GATEWAY_URL}/audiobooks/{audiobook_id.replace(':', '%3A')}"
+                            )
+                        ).json()
+                    except Exception as e:  # noqa: BLE001 - 瞬断は次のtickで再試行
+                        log(f"生成監視の一時失敗（継続）: {title}: {e}")
+                        continue
+                    chapters = detail.get("chapters") or []
+                    done = sum(1 for c in chapters if c.get("audio_file"))
+                    failed = sum(1 for c in chapters if c.get("generation_error"))
+                    if done + failed >= len(chapters) and chapters:
+                        log(f"生成完了: {title} 成功{done}/失敗{failed}/全{len(chapters)}章")
+                        return {
+                            "title": title, "audiobook_id": audiobook_id,
+                            "status": "done", "chapters": len(chapters),
+                            "succeeded": done, "failed": failed,
+                        }
+                    log(f"生成中: {title} {done+failed}/{len(chapters)}章")
+                return {"title": title, "audiobook_id": audiobook_id, "status": "timeout"}
+        except Exception as e:  # noqa: BLE001 - 1冊の失敗で全体を止めない
+            log(f"生成失敗: {title}: {e}")
+            return {"title": title, "status": "generate_error"}
 
 
 async def set_mentor_persona() -> None:
@@ -284,8 +296,9 @@ async def recover_missing() -> None:
     await wait_for_stack()
 
     # --- 0. キャプション欠落本（Anthropic 上限中に取り込まれた本）を削除→再取り込み ---
-    if os.getenv("RECOVER_REINGEST", "").strip():
-        titles = [t.strip() for t in os.getenv("RECOVER_REINGEST").split("||") if t.strip()]
+    reingest_env = os.getenv("RECOVER_REINGEST", "").strip()
+    if reingest_env:
+        titles = [t.strip() for t in reingest_env.split("||") if t.strip()]
         for title in titles:
             srcs = await repo_query(
                 "SELECT type::string(id) AS id FROM source WHERE title = $t", {"t": title})
@@ -340,14 +353,17 @@ async def recover_missing() -> None:
     )
     async with httpx.AsyncClient(timeout=30) as client:
         for ep in failed:
-            resp = await client.post(
-                f"{GATEWAY_URL}/chapters/{ep['id'].replace(':', '%3A')}/retry"
-            )
-            log(f"章リトライ {ep['name'][:30]}: {resp.status_code}")
+            try:  # 監査 H2: 1件の瞬断で生成投入(gather)に到達できない事故を防ぐ
+                resp = await client.post(
+                    f"{GATEWAY_URL}/chapters/{ep['id'].replace(':', '%3A')}/retry"
+                )
+                log(f"章リトライ {ep['name'][:30]}: {resp.status_code}")
+            except Exception as e:  # noqa: BLE001
+                log(f"章リトライ失敗（継続）: {ep['name'][:30]}: {e}")
             await asyncio.sleep(5)  # 同時リトライ爆発を避ける
     if tasks:
-        results = await asyncio.gather(*tasks)
-        log(json.dumps(list(results), ensure_ascii=False)[:1500])
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        log(json.dumps([str(r) for r in results], ensure_ascii=False)[:1500])
     log("復旧モード完了")
 
 
@@ -407,9 +423,16 @@ async def main() -> None:
             return {"title": title, "status": "ingested", "source_id": source_id}
         return await generate_audiobook(title, source_id, gen_sem)
 
-    results = await asyncio.gather(
-        *(book_pipeline(pdf, title, out_dir) for pdf, title, out_dir in targets)
+    # return_exceptions=True: 1冊の想定外エラーで全66冊が巻き添えにならず、
+    # レポートが必ず書かれる（監査 H1）
+    raw = await asyncio.gather(
+        *(book_pipeline(pdf, title, out_dir) for pdf, title, out_dir in targets),
+        return_exceptions=True,
     )
+    results = [
+        r if isinstance(r, dict) else {"status": "crashed", "error": str(r)}
+        for r in raw
+    ]
 
     report: dict = {
         "zips": [z.name for z in zips],

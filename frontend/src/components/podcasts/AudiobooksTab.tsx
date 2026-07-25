@@ -597,7 +597,14 @@ export function AudiobooksTab() {
         {t('podcasts.audiobookGenerate')}
       </Button>
       <GenerateAudiobookDialog open={generateOpen} onOpenChange={setGenerateOpen} />
-      <ImportBookDialog open={importOpen} onOpenChange={setImportOpen} />
+      {/* key で開くたびに再マウント＝毎回まっさらなフォームに戻す（監査 M1） */}
+      {importOpen && (
+        <ImportBookDialog
+          key={String(importOpen)}
+          open={importOpen}
+          onOpenChange={setImportOpen}
+        />
+      )}
     </div>
   )
 
