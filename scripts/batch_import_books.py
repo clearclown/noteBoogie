@@ -328,6 +328,8 @@ async def main() -> None:
     ap.add_argument("--since-hours", type=float, default=12.0,
                     help="この時間以内に更新された zip のみ対象")
     ap.add_argument("--no-audiobooks", action="store_true")
+    ap.add_argument("--convert-only", action="store_true",
+                    help="変換のみ（APIクレジット枯渇時: 取り込み・生成をスキップ）")
     ap.add_argument("--generate-missing", action="store_true",
                     help="復旧モード: 埋め込み欠落の再投入 + 未生成audiobookの生成 + 失敗章リトライ")
     args = ap.parse_args()
@@ -366,6 +368,8 @@ async def main() -> None:
     async def book_pipeline(pdf: Path, title: str, out_dir: Path) -> dict:
         if not await convert_pdf(pdf, out_dir, conv_sem):
             return {"title": title, "status": "convert_failed"}
+        if args.convert_only:
+            return {"title": title, "status": "converted"}
         source_id = await ingest_book_dir(out_dir, pdf, title, ing_sem)
         if not source_id:
             return {"title": title, "status": "ingest_failed"}
