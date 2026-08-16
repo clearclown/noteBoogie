@@ -28,7 +28,7 @@ from scripts.eval_transcript import (  # noqa: E402
     transcript_text,
 )
 
-FEATURES = ["structure", "grounding", "politeness", "length"]
+FEATURES = ["grounding", "coverage", "structure", "politeness", "length"]
 DEFAULT_WEIGHTS_PATH = Path("data/rl/reward_weights.json")
 
 
@@ -36,7 +36,7 @@ def featurize(content: str, transcript: object) -> list[float]:
     """1エピソードを自動4指標の特徴ベクトルへ（composite と同じ素材）。"""
     e = evaluate_chapter("distill", content, transcript_text(transcript))
     length_ok = 1.0 if 1.0 <= e.length_ratio <= 8.0 else 0.5
-    return [e.structure, e.grounding, e.politeness, length_ok]
+    return [e.grounding, getattr(e, "coverage", 1.0), e.structure, e.politeness, length_ok]
 
 
 def fit_logistic(
@@ -47,9 +47,10 @@ def fit_logistic(
 ) -> tuple[list[float], float]:
     """素朴なロジスティック回帰（依存ライブラリなし）。
 
-    Returns (weights[4], bias)。標本が少ない前提なので正則化は弱め（L2 1e-3）。
+    Returns (weights, bias)。標本が少ない前提なので正則化は弱め（L2 1e-3）。
+    次元は与えられた特徴ベクトルから推論する（FEATURES を増やしても壊れない）。
     """
-    n_features = len(FEATURES)
+    n_features = len(features[0]) if features else len(FEATURES)
     w = [0.0] * n_features
     b = 0.0
     n = len(features)
@@ -90,7 +91,11 @@ def to_reward_weights(raw: list[float]) -> dict:
     負係数（人間の評価と逆相関）は 0 に落とす。全て非正なら学習失敗として
     既定重みへフォールバック（人手データが指標と無相関なケースの安全弁）。
     """
+    # 係数の本数が FEATURES と食い違っても全キーを必ず返す（欠けた軸は 0 扱い）。
+    # zip で切り詰めると下流の表示・composite が KeyError で落ちるため。
     clipped = [max(0.0, v) for v in raw]
+    clipped += [0.0] * (len(FEATURES) - len(clipped))
+    clipped = clipped[: len(FEATURES)]
     total = sum(clipped)
     if total <= 0:
         return dict(DEFAULT_REWARD_WEIGHTS)

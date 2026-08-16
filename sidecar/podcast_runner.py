@@ -345,6 +345,13 @@ def build_gate_critique(ev, threshold: float, thin: bool = False) -> str:
         lines.append(
             f"- 捏造禁止: 次の語は章本文に存在しない。使わないか、本文にある表現へ置き換えること: {terms}"
         )
+    if getattr(ev, "coverage", 1.0) < 0.8 and getattr(ev, "missing_terms", None):
+        # 網羅性（忠実性の次に優先）。本文の主題語の取りこぼしを具体的に指摘する。
+        missing = "、".join(str(t) for t in ev.missing_terms[:10])
+        lines.append(
+            f"- 取りこぼし: 章の重要語のうち次が台本に出てこない。"
+            f"本文に書かれている範囲で触れること: {missing}"
+        )
     if ev.politeness < 0.9:
         lines.append("- 文体: 文末は です/ます調で統一すること")
     if ev.length_ratio < 1.0:

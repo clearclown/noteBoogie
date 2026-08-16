@@ -95,3 +95,52 @@ class TestComposite:
         assert e.length_ratio > 8.0
         # Composite still bounded and lower than the well-grounded case.
         assert e.composite < 0.9
+
+
+# --- coverage（網羅性）: 忠実性の次に優先する軸 ---------------------------
+# grounding だけでは「本文を薄くなぞるだけ」の台本を検出できないため、
+# 章の主題語をどれだけ拾えているかを測る。
+
+
+def test_coverage_full_when_transcript_mentions_key_terms():
+    from scripts.eval_transcript import coverage_score
+
+    content = "限界利益と変動費の説明。限界利益は重要。変動費も重要。" * 5
+    transcript = "限界利益と変動費について説明します。"
+    assert coverage_score(content, transcript)["score"] == 1.0
+
+
+def test_coverage_drops_when_key_terms_missing():
+    from scripts.eval_transcript import coverage_score
+
+    content = "限界利益の話。変動費の話。固定費の話。" * 5
+    transcript = "今日は会計の話をします。"  # 主題語に一切触れない
+    r = coverage_score(content, transcript)
+    assert r["score"] < 0.5
+    assert r["missing"]  # 取りこぼした語が返る
+
+
+def test_coverage_empty_content_is_perfect():
+    from scripts.eval_transcript import coverage_score
+
+    assert coverage_score("", "何か")["score"] == 1.0
+
+
+def test_coverage_is_independent_of_grounding():
+    """捏造せず(grounding高)でも取りこぼせば coverage は下がる。"""
+    from scripts.eval_transcript import evaluate_chapter
+
+    content = "限界利益の詳細。変動費の詳細。固定費の詳細。損益分岐点の詳細。" * 8
+    transcript = "限界利益についてだけお話しします。"  # 本文由来だが1語のみ
+    ev = evaluate_chapter("ch", content, transcript)
+    assert ev.grounding >= 0.8  # 捏造していない
+    assert ev.coverage < 0.8  # だが取りこぼしている
+
+
+def test_default_weights_follow_pmvv_priority():
+    """PMVV の優先順位: 忠実性 > 網羅性 > 聴きやすさ。"""
+    from scripts.eval_transcript import DEFAULT_REWARD_WEIGHTS as w
+
+    listenability = w["structure"] + w["politeness"]
+    assert w["grounding"] > w["coverage"] > listenability
+    assert abs(sum(w.values()) - 1.0) < 1e-6

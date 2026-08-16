@@ -39,11 +39,24 @@ def test_default_weights_when_no_file(monkeypatch, tmp_path):
 def test_distilled_weights_override_and_normalize(monkeypatch, tmp_path):
     path = tmp_path / "weights.json"
     path.write_text(json.dumps(
-        {"structure": 2.0, "grounding": 6.0, "politeness": 1.0, "length": 1.0}
+        {"grounding": 6.0, "coverage": 2.0, "structure": 1.0,
+         "politeness": 0.5, "length": 0.5}
     ))
     monkeypatch.setenv("REWARD_WEIGHTS_FILE", str(path))
     w = load_reward_weights()
     assert w["grounding"] == 0.6  # 正規化される
+    assert abs(sum(w.values()) - 1.0) < 1e-6
+
+
+def test_legacy_weights_file_without_coverage_is_filled(monkeypatch, tmp_path):
+    """coverage 導入前の蒸留ファイル（4キー）でも壊れず、既定値で補完される。"""
+    path = tmp_path / "weights.json"
+    path.write_text(json.dumps(
+        {"structure": 2.0, "grounding": 6.0, "politeness": 1.0, "length": 1.0}
+    ))
+    monkeypatch.setenv("REWARD_WEIGHTS_FILE", str(path))
+    w = load_reward_weights()
+    assert "coverage" in w  # 欠けたキーは既定値で補われる
     assert abs(sum(w.values()) - 1.0) < 1e-6
 
 
@@ -60,12 +73,13 @@ def test_composite_uses_distilled_weights(monkeypatch, tmp_path):
     path = tmp_path / "weights.json"
     # グラウンディングだけを見る報酬モデル
     path.write_text(json.dumps(
-        {"structure": 0.0, "grounding": 1.0, "politeness": 0.0, "length": 0.0}
+        {"structure": 0.0, "grounding": 1.0, "coverage": 0.0,
+         "politeness": 0.0, "length": 0.0}
     ))
     monkeypatch.setenv("REWARD_WEIGHTS_FILE", str(path))
     e = ChapterEval("ch", structure=0.0, grounding=0.8, politeness=0.0,
-                    length_ratio=100.0, unsupported_terms=[])
-    assert e.composite == 0.8
+                    length_ratio=100.0, unsupported_terms=[], coverage=0.5)
+    assert e.composite == 0.8  # grounding のみが効く
 
 
 # --- 学習の純関数 -----------------------------------------------------------
@@ -82,17 +96,21 @@ def test_fit_logistic_separable_data():
 
 
 def test_to_reward_weights_clips_and_normalizes():
-    w = to_reward_weights([1.0, 3.0, -2.0, 0.0])
-    assert w == {"structure": 0.25, "grounding": 0.75, "politeness": 0.0, "length": 0.0}
+    # FEATURES 順: grounding, coverage, structure, politeness, length
+    w = to_reward_weights([3.0, 1.0, -2.0, 0.0, 0.0])
+    assert w == {
+        "grounding": 0.75, "coverage": 0.25,
+        "structure": 0.0, "politeness": 0.0, "length": 0.0,
+    }
     # 全て非正 → 学習失敗として既定へ
-    assert to_reward_weights([-1.0, -0.5, 0.0, -2.0]) == DEFAULT_REWARD_WEIGHTS
+    assert to_reward_weights([-1.0, -0.5, 0.0, -2.0, -1.0]) == DEFAULT_REWARD_WEIGHTS
 
 
 def test_featurize_maps_length_band():
     content = "仮説思考とは結論から考える技術である。" * 20
     good = featurize(content, content[:200])
     assert len(good) == len(FEATURES)
-    assert good[3] == 0.5  # length_ratio < 1.0 → 減点側
+    assert good[FEATURES.index("length")] == 0.5  # length_ratio < 1.0 → 減点側
 
 
 # --- distill フロー ----------------------------------------------------------
@@ -133,8 +151,12 @@ async def test_distill_writes_weights_file(tmp_path, capsys):
     )
 
     def fake_featurize(content, transcript):
-        # up は高グラウンディング、down は低グラウンディングの世界
-        return [0.5, 0.9, 0.8, 1.0] if content == "good" else [0.5, 0.2, 0.8, 1.0]
+        # FEATURES 順: grounding, coverage, structure, politeness, length
+        # up は高グラウンディング、down は低グラウンディングの世界（他軸は同一）
+        return (
+            [0.9, 0.8, 0.5, 0.8, 1.0] if content == "good"
+            else [0.2, 0.8, 0.5, 0.8, 1.0]
+        )
 
     with (
         patch(

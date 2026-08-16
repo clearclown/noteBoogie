@@ -32,7 +32,7 @@ import asyncio
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -123,6 +123,35 @@ def grounding_score(content: str, transcript: str) -> dict:
     }
 
 
+def coverage_score(content: str, transcript: str, top_n: int = 30) -> dict:
+    """章本文の重要語のうち、台本が触れている割合（網羅性）。
+
+    grounding の逆向きの指標:
+    - grounding = 台本の語が本文にあるか（**捏造していないか**）
+    - coverage  = 本文の重要語が台本にあるか（**取りこぼしていないか**）
+
+    忠実性だけを最適化すると「本文を薄くなぞるだけの台本」が高得点になり、章の要点を
+    落としても検出できない。重要語は本文の fact term を出現頻度上位 `top_n` 件とする
+    （頻出＝その章の主題語）。照合は grounding と同じ緩さ（漢字連は前方2字一致も可）。
+    """
+    from collections import Counter
+
+    terms = [t for t in (m.group(0) for m in _FACT_RE.finditer(content))
+             if t not in _SPEECH_STOPWORDS]
+    if not terms:
+        return {"score": 1.0, "missing": [], "total": 0}
+    key_terms = [t for t, _ in Counter(terms).most_common(top_n)]
+    missing = [
+        t for t in key_terms
+        if t not in transcript and (len(t) < 3 or t[:2] not in transcript)
+    ]
+    return {
+        "score": round(1 - len(missing) / len(key_terms), 3),
+        "missing": sorted(missing)[:20],
+        "total": len(key_terms),
+    }
+
+
 def politeness_score(text: str) -> float:
     """文末の敬体率（です/ます調の一貫性）。"""
     sentences = [s.strip() for s in re.split(r"[。！？\n]", text) if len(s.strip()) >= 5]
@@ -135,11 +164,16 @@ def politeness_score(text: str) -> float:
 # 合成報酬の重み。既定は手設計だが、報酬蒸留（scripts/distill_reward.py が
 # 章の👍/👎から学習して data/rl/reward_weights.json を書く）で上書きできる。
 # ゲート（sidecar）と最適化器は composite 経由でこの重みを共有する。
+# 重みは PMVV から逆算した優先順位を反映する（docs/book-navigator/PMVV.md）:
+#   忠実性(grounding 0.40) > 網羅性(coverage 0.30) > 聴きやすさ(structure+politeness 0.25)
+# 「本に書いていないことを言わない」が最優先で、その制約の中で要点を落とさず、
+# 最後に語り口を整える。length は水増し/薄さの補助的な減点に留める。
 DEFAULT_REWARD_WEIGHTS = {
-    "structure": 0.35,
-    "grounding": 0.4,
-    "politeness": 0.15,
-    "length": 0.1,
+    "grounding": 0.40,
+    "coverage": 0.30,
+    "structure": 0.15,
+    "politeness": 0.10,
+    "length": 0.05,
 }
 REWARD_WEIGHTS_FILE_ENV = "REWARD_WEIGHTS_FILE"
 _DEFAULT_WEIGHTS_PATH = "data/rl/reward_weights.json"
@@ -158,7 +192,12 @@ def load_reward_weights() -> dict:
     try:
         if path.exists():
             data = json.loads(path.read_text())
-            candidate = {k: float(data[k]) for k in DEFAULT_REWARD_WEIGHTS}
+            # 旧版の蒸留ファイル（coverage を持たない4キー）でも壊れないよう、
+            # 欠けているキーは既定値で補う。
+            candidate = {
+                k: float(data.get(k, DEFAULT_REWARD_WEIGHTS[k]))
+                for k in DEFAULT_REWARD_WEIGHTS
+            }
             total = sum(candidate.values())
             if total > 0 and all(v >= 0 for v in candidate.values()):
                 weights = {k: round(v / total, 4) for k, v in candidate.items()}
@@ -182,14 +221,17 @@ class ChapterEval:
     politeness: float
     length_ratio: float
     unsupported_terms: list
+    coverage: float = 1.0
+    missing_terms: list = field(default_factory=list)
 
     @property
     def composite(self) -> float:
         """総合報酬（ゲート・optimize_briefing と共有。重みは蒸留で更新可能）。"""
         w = load_reward_weights()
         return round(
-            w["structure"] * self.structure
-            + w["grounding"] * self.grounding
+            w["grounding"] * self.grounding
+            + w["coverage"] * self.coverage
+            + w["structure"] * self.structure
             + w["politeness"] * self.politeness
             # 台本が極端に薄い/水増しのときに減点（1.0〜8.0倍を許容帯とする）
             + w["length"] * (1.0 if 1.0 <= self.length_ratio <= 8.0 else 0.5),
@@ -201,6 +243,7 @@ def evaluate_chapter(name: str, content: str, transcript: object) -> ChapterEval
     text = transcript_text(transcript)
     st = structure_score(text)
     gr = grounding_score(content, text)
+    cv = coverage_score(content, text)
     return ChapterEval(
         chapter=name,
         structure=st["score"],
@@ -208,6 +251,8 @@ def evaluate_chapter(name: str, content: str, transcript: object) -> ChapterEval
         politeness=politeness_score(text),
         length_ratio=round(len(text) / max(len(content), 1), 2),
         unsupported_terms=gr["unsupported"],
+        coverage=cv["score"],
+        missing_terms=cv["missing"],
     )
 
 
