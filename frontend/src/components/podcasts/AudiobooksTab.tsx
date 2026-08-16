@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   BookUp,
+  Download,
   Headphones,
   Image as ImageIcon,
   Loader2,
@@ -16,6 +17,7 @@ import {
   ThumbsUp,
   Trash2,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -31,6 +33,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { audiobooksApi } from '@/lib/api/audiobooks'
+import { downloadEpisodesZip } from '@/lib/api/download'
 import { podcastsApi } from '@/lib/api/podcasts'
 import { ImportBookDialog } from './ImportBookDialog'
 import { AudiobookPlayerControls } from './AudiobookPlayerControls'
@@ -99,6 +102,25 @@ function AudiobookDetailView({
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const chapters = useMemo(() => detail?.chapters ?? [], [detail])
+
+  // 一括ダウンロード（この本の完成章を1つのZIPで保存。スマホで1ファイル完結）。
+  const [zipping, setZipping] = useState(false)
+  const downloadableIds = useMemo(
+    () => chapters.filter((c) => c.audio_file && c.id).map((c) => c.id as string),
+    [chapters]
+  )
+  const handleDownloadAll = useCallback(async () => {
+    if (downloadableIds.length === 0) return
+    setZipping(true)
+    try {
+      await downloadEpisodesZip(downloadableIds, detail?.name ?? 'audiobook')
+    } catch {
+      toast.error(t('podcasts.downloadFailed'))
+    } finally {
+      setZipping(false)
+    }
+  }, [downloadableIds, detail?.name, t])
+
   const playable = useCallback(
     (index: number | null) =>
       index !== null && Boolean(chapters[index]?.audio_file && chapters[index]?.id),
@@ -208,12 +230,28 @@ function AudiobookDetailView({
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h2 className="text-lg font-semibold">{detail?.name}</h2>
-        <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          onClick={handleDownloadAll}
+          disabled={zipping || downloadableIds.length === 0}
+        >
+          {zipping ? (
+            <Loader2 className="h-4 w-4 animate-spin sm:mr-1" />
+          ) : (
+            <Download className="h-4 w-4 sm:mr-1" />
+          )}
+          <span className="hidden sm:inline">
+            {t('podcasts.downloadAllZip')} ({downloadableIds.length})
+          </span>
+        </Button>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
           <Checkbox
             checked={autoAdvance}
             onCheckedChange={(checked) => setAutoAdvance(checked === true)}
           />
-          <span>{t('podcasts.audiobookAutoAdvance')}</span>
+          <span className="hidden sm:inline">{t('podcasts.audiobookAutoAdvance')}</span>
         </label>
       </div>
 

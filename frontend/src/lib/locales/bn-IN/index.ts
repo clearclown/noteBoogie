@@ -211,7 +211,6 @@ export const bnIN = {
     connectErrorHint: "সার্ভারে সংযোগ করতে অক্ষম। API চালু আছে কিনা চেক করুন।",
   },
   navigation: {
-    collect: "সংগ্রহ",
     process: "প্রক্রিয়া",
     create: "তৈরি",
     manage: "ব্যবস্থাপনা",
@@ -725,6 +724,9 @@ export const bnIN = {
     deleteEpisodeTitle: "এপিসোড মুছে ফেলবেন?",
     deleteEpisodeDesc: "এটি \"{{name}}\" এবং এর অডিও ফাইল স্থায়ীভাবে সরিয়ে দেবে।",
     audioUnavailable: "অডিও উপলব্ধ নয়",
+    loadAudio: "অডিও লোড করুন",
+    downloadAllZip: "সব ডাউনলোড (ZIP)",
+    downloadFailed: "ডাউনলোড ব্যর্থ হয়েছে",
     segment: "সেগমেন্ট",
     speaker: "স্পিকার",
     profile: "প্রোফাইল",
@@ -785,9 +787,6 @@ export const bnIN = {
     selectVoiceModel: "ভয়েস মডেল নির্বাচন করুন",
     perSpeakerTtsOverride: "প্রতি স্পিকার TTS ওভাররাইড (ঐচ্ছিক)",
     useProfileDefault: "প্রোফাইল ডিফল্ট ব্যবহার করুন",
-    setupRequired: "সেটআপ প্রয়োজন",
-    setupRequiredDesc:
-      "কিছু প্রোফাইলে এখনও মডেল কনফিগার করা হয়নি। পডকাস্ট তৈরির আগে মডেল নির্বাচন করতে সেগুলি সম্পাদনা করুন।",
     notConfigured: "কনফিগার করা হয়নি",
   },
   settings: {

@@ -321,6 +321,57 @@ async def get_podcast_episode(episode_id: str):
         raise HTTPException(status_code=404, detail="Episode not found")
 
 
+def _sanitize_filename_component(s: str) -> str:
+    """ファイル名に使えない文字を除去し、空白を詰める。"""
+    import re
+
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]', "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _strip_chapter_prefix(title: str) -> str:
+    """章タイトル先頭の「第N章 」を落として、章名（〇〇）だけにする。"""
+    import re
+
+    return re.sub(
+        r"^第\s*[0-9０-９一二三四五六七八九十百]+\s*章\s*[:：]?\s*", "", title or ""
+    ).strip()
+
+
+def _download_name_from_row(row: dict, fallback: str = "") -> str:
+    """行(chapter_index/chapter_title/book)から <本>_<NN>_<章名>.mp3 を組む。"""
+    book = _sanitize_filename_component(str(row.get("book") or "audiobook"))
+    idx = row.get("chapter_index")
+    num = f"{int(idx):02d}" if isinstance(idx, (int, float)) else "00"
+    title = _sanitize_filename_component(
+        _strip_chapter_prefix(str(row.get("chapter_title") or ""))
+    )
+    parts = [p for p in (book, num, title) if p]
+    return ("_".join(parts) + ".mp3") if parts else fallback
+
+
+async def _episode_download_filename(episode_id: str, fallback: str) -> str:
+    """ダウンロード名を <本タイトル>_<章番号(ゼロ埋め2桁)>_<章名>.mp3 で組む。
+
+    章番号は episode.chapter_index（0=前付け, N=第N章）。章名は chapter_title の
+    先頭「第N章」を除いた部分。取得に失敗したら fallback（=元のファイル名）。
+    """
+    from open_notebook.database.repository import repo_query
+
+    try:
+        rows = await repo_query(
+            "SELECT chapter_index, chapter_title, audiobook.name AS book "
+            "FROM episode WHERE id = type::thing($id)",
+            {"id": episode_id},
+        )
+    except Exception as e:  # noqa: BLE001 - 命名失敗で配信自体を止めない
+        logger.warning(f"download filename build failed for {episode_id}: {e}")
+        return fallback
+    if not rows:
+        return fallback
+    return _download_name_from_row(rows[0], fallback)
+
+
 @router.get("/podcasts/episodes/{episode_id}/audio")
 async def stream_podcast_episode_audio(episode_id: str):
     """Stream the audio file associated with a podcast episode"""
@@ -348,10 +399,97 @@ async def stream_podcast_episode_audio(episode_id: str):
     if not audio_path.exists():
         raise HTTPException(status_code=404, detail="Audio file not found on disk")
 
+    download_name = await _episode_download_filename(episode_id, audio_path.name)
     return FileResponse(
         audio_path,
         media_type="audio/mpeg",
-        filename=audio_path.name,
+        filename=download_name,
+    )
+
+
+class EpisodesDownloadRequest(BaseModel):
+    """複数章を1つのZIPでまとめてダウンロードする（一括保存・スマホ配慮）。"""
+
+    episode_ids: List[str]
+    zip_name: Optional[str] = None
+
+
+# 一度にZIP化する章数の上限（メモリ・ディスク保護）。
+MAX_ZIP_EPISODES = 200
+
+
+@router.post("/podcasts/download")
+async def download_episodes_zip(request: EpisodesDownloadRequest):
+    """選択した章の mp3 を1つのZIPにまとめて返す。
+
+    サーバ側でZIP化するため、スマホでも「1ファイルDL」で完結する（クライアント側で
+    数百MBのblobを抱えてOOMする問題を避ける）。各メンバー名は
+    <本タイトル>_<章番号>_<章名>.mp3。mp3は圧縮済みなので ZIP_STORED（無圧縮）。
+    """
+    import os
+    import tempfile
+    import zipfile
+
+    from starlette.background import BackgroundTask
+
+    from open_notebook.database.repository import repo_query
+
+    ids = request.episode_ids[:MAX_ZIP_EPISODES]
+    if not ids:
+        raise HTTPException(status_code=422, detail="episode_ids is required")
+    if len(request.episode_ids) > MAX_ZIP_EPISODES:
+        logger.warning(
+            f"download zip: {len(request.episode_ids)} 章要求 → 先頭 {MAX_ZIP_EPISODES} に制限"
+        )
+
+    # 章ごとに (メンバー名, 実ファイルパス) を集める
+    entries: list[tuple[str, "os.PathLike[str]"]] = []
+    for eid in ids:
+        try:
+            rows = await repo_query(
+                "SELECT chapter_index, chapter_title, audio_file, audiobook.name AS book "
+                "FROM episode WHERE id = type::thing($id)",
+                {"id": eid},
+            )
+        except Exception as e:  # noqa: BLE001 - 1章の失敗で全体を止めない
+            logger.warning(f"zip: episode {eid} query failed: {e}")
+            continue
+        if not rows:
+            continue
+        af = rows[0].get("audio_file")
+        if not af:
+            continue
+        path = resolve_contained_audio_path(af)
+        if path is None or not path.exists():
+            continue
+        member = _download_name_from_row(rows[0], fallback=path.name)
+        entries.append((member, path))
+
+    if not entries:
+        raise HTTPException(status_code=404, detail="No downloadable audio found")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
+            used: set[str] = set()
+            for member, path in entries:
+                name = member
+                stem, ext = os.path.splitext(member)
+                i = 1
+                while name in used:  # 同名衝突を避ける
+                    name = f"{stem}_{i}{ext}"
+                    i += 1
+                used.add(name)
+                zf.write(path, arcname=name)
+    finally:
+        tmp.close()
+
+    zip_stem = _sanitize_filename_component(request.zip_name or "") or "audiobook"
+    return FileResponse(
+        tmp.name,
+        media_type="application/zip",
+        filename=f"{zip_stem}.zip",
+        background=BackgroundTask(os.unlink, tmp.name),
     )
 
 

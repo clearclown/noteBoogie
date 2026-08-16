@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { getDateLocale } from '@/lib/utils/date-locale'
-import { InfoIcon, RefreshCcw, Trash2 } from 'lucide-react'
+import { InfoIcon, Play, RefreshCcw, Trash2 } from 'lucide-react'
 
 import apiClient from '@/lib/api/client'
 import { resolvePodcastAssetUrl } from '@/lib/api/podcasts'
@@ -158,11 +158,17 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
   const [audioSrc, setAudioSrc] = useState<string | undefined>()
   const [audioError, setAudioError] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  // 音声は「読み込む」を押すまで取得しない（遅延ロード）。エピソード一覧には
+  // 数百枚のカードが並ぶため、mount時に全部が blob を取得するとブラウザの
+  // 同時接続を飽和させ、どの音声も再生できなくなる（実測: 640件で全滅）。
+  const [armed, setArmed] = useState(false)
+  const hasAudio = Boolean(episode.audio_url ?? episode.audio_file)
 
   const outlineSegments = useMemo(() => extractOutlineSegments(episode.outline), [episode.outline])
   const transcriptEntries = useMemo(() => extractTranscriptEntries(episode.transcript), [episode.transcript])
 
   useEffect(() => {
+    if (!armed) return
     let revokeUrl: string | undefined
     setAudioError(null)
 
@@ -199,7 +205,7 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
         URL.revokeObjectURL(revokeUrl)
       }
     }
-  }, [episode.audio_url, episode.audio_file, t])
+  }, [armed, episode.audio_url, episode.audio_file, t])
 
   const distance = episode.created
     ? formatDistanceToNow(new Date(episode.created), {
@@ -241,7 +247,13 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+            <Dialog
+              open={detailsOpen}
+              onOpenChange={(open) => {
+                setDetailsOpen(open)
+                if (open) setArmed(true) // 詳細を開いたら音声を読み込む
+              }}
+            >
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
                   <InfoIcon className="mr-2 h-4 w-4" /> {t('podcasts.details')}
@@ -429,9 +441,20 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
         </div>
 
         {audioSrc ? (
-          <audio controls preload="none" src={audioSrc} className="w-full" />
+          <audio controls autoPlay preload="none" src={audioSrc} className="w-full" />
         ) : audioError ? (
           <p className="text-sm text-destructive">{audioError}</p>
+        ) : hasAudio ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setArmed(true)}
+            disabled={armed}
+            className="w-full"
+          >
+            <Play className="mr-2 h-4 w-4" />
+            {armed ? t('common.loading') : t('podcasts.loadAudio')}
+          </Button>
         ) : null}
 
         {isFailed && episode.error_message ? (

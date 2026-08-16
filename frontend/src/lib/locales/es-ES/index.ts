@@ -38,7 +38,7 @@ export const esES = {
     podcast: "Podcast",
     quickActions: "Acciones rápidas",
     quickActionsDesc: "Navegación, búsqueda, preguntar, tema",
-    appName: "Open Notebook",
+    appName: "Book Navigator",
     add: "Agregar",
     remove: "Quitar",
     confirm: "Confirmar",
@@ -211,7 +211,6 @@ export const esES = {
     connectErrorHint: "No se puede conectar al servidor. Por favor, verifica si la API está funcionando.",
   },
   navigation: {
-    collect: "Recopilar",
     process: "Procesar",
     create: "Crear",
     manage: "Gestionar",
@@ -725,6 +724,9 @@ export const esES = {
     deleteEpisodeTitle: "¿Eliminar episodio?",
     deleteEpisodeDesc: "Esto eliminará \"{{name}}\" y su archivo de audio permanentemente.",
     audioUnavailable: "Audio no disponible",
+    loadAudio: "Cargar audio",
+    downloadAllZip: "Descargar todo (ZIP)",
+    downloadFailed: "Error al descargar",
     segment: "Segmento",
     speaker: "Locutor",
     profile: "Perfil",
@@ -785,9 +787,6 @@ export const esES = {
     selectVoiceModel: "Seleccionar modelo de voz",
     perSpeakerTtsOverride: "Anulación de TTS por locutor (opcional)",
     useProfileDefault: "Usar predeterminado del perfil",
-    setupRequired: "Configuración requerida",
-    setupRequiredDesc:
-      "Algunos perfiles aún no tienen modelos configurados. Edítalos para seleccionar modelos antes de generar podcasts.",
     notConfigured: "No configurado",
   },
   settings: {

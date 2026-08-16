@@ -1,29 +1,18 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AudiobooksTab } from '@/components/podcasts/AudiobooksTab'
 import { EpisodesTab } from '@/components/podcasts/EpisodesTab'
 import { TemplatesTab } from '@/components/podcasts/TemplatesTab'
 import { Mic, LayoutTemplate, Headphones } from 'lucide-react'
 import { useTranslation } from '@/lib/hooks/use-translation'
-import { useEpisodeProfiles, useSpeakerProfiles } from '@/lib/hooks/use-podcasts'
-import { needsModelSetup } from '@/lib/types/podcasts'
 
 export default function PodcastsPage() {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'episodes' | 'audiobooks' | 'templates'>('episodes')
-
-  const { episodeProfiles } = useEpisodeProfiles()
-  const { speakerProfiles } = useSpeakerProfiles(episodeProfiles)
-
-  const hasUnconfiguredProfiles = useMemo(() => {
-    return episodeProfiles.some(needsModelSetup) || speakerProfiles.some(needsModelSetup)
-  }, [episodeProfiles, speakerProfiles])
 
   return (
     <AppShell>
@@ -36,15 +25,6 @@ export default function PodcastsPage() {
             </p>
           </header>
 
-          {hasUnconfiguredProfiles ? (
-            <Alert className="bg-amber-50 text-amber-900 border-amber-200">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>{t('podcasts.setupRequired')}</AlertTitle>
-              <AlertDescription>
-                {t('podcasts.setupRequiredDesc')}
-              </AlertDescription>
-            </Alert>
-          ) : null}
 
           <Tabs
             value={activeTab}

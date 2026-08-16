@@ -36,7 +36,7 @@ export const enUS = {
     podcast: "Podcast",
     quickActions: "Quick actions",
     quickActionsDesc: "Navigation, search, ask, theme",
-    appName: "Open Notebook",
+    appName: "Book Navigator",
     add: "Add",
     remove: "Remove",
     confirm: "Confirm",
@@ -209,7 +209,6 @@ export const enUS = {
     connectErrorHint: "Unable to connect to server. Please check if the API is running.",
   },
   navigation: {
-    collect: "Collect",
     process: "Process",
     create: "Create",
     manage: "Manage",
@@ -723,6 +722,9 @@ export const enUS = {
     deleteEpisodeTitle: "Delete episode?",
     deleteEpisodeDesc: "This will remove “{{name}}” and its audio file permanently.",
     audioUnavailable: "Audio unavailable",
+    loadAudio: "Load audio",
+    downloadAllZip: "Download all (ZIP)",
+    downloadFailed: "Download failed",
     segment: "Segment",
     speaker: "Speaker",
     profile: "Profile",
@@ -783,9 +785,6 @@ export const enUS = {
     selectVoiceModel: "Select voice model",
     perSpeakerTtsOverride: "Per-speaker TTS override (optional)",
     useProfileDefault: "Use profile default",
-    setupRequired: "Setup required",
-    setupRequiredDesc:
-      "Some profiles don't have models configured yet. Edit them to select models before generating podcasts.",
     notConfigured: "Not configured",
   },
   settings: {

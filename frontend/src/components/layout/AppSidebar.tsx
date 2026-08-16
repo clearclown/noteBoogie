@@ -45,32 +45,25 @@ import {
   Command,
 } from 'lucide-react'
 
+// NotebookLM 風に整理: 「本(ホーム)」を主役にし、その他は「管理」へ集約。
+// オーディオブック/師匠/ソース/質問はノートブックのワークスペース(Studio/中央)に
+// 統合するのが最終形だが、全体像への導線としてここにも残す（de-emphasized）。
 const getNavigation = (t: TFunction) => [
   {
-    title: t('navigation.collect'),
-    items: [
-      { name: t('navigation.sources'), href: '/sources', icon: FileText },
-    ],
-  },
-  {
-    title: t('navigation.process'),
+    title: '',
     items: [
       { name: t('navigation.notebooks'), href: '/notebooks', icon: Book },
       { name: t('navigation.askAndSearch'), href: '/search', icon: Search },
     ],
   },
   {
-    title: t('navigation.create'),
-    items: [
-      { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic },
-      { name: t('navigation.mentor'), href: '/mentor', icon: GraduationCap },
-    ],
-  },
-  {
     title: t('navigation.manage'),
     items: [
-      { name: t('navigation.models'), href: '/settings/api-keys', icon: Bot },
+      { name: t('navigation.sources'), href: '/sources', icon: FileText },
+      { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic },
+      { name: t('navigation.mentor'), href: '/mentor', icon: GraduationCap },
       { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle },
+      { name: t('navigation.models'), href: '/settings/api-keys', icon: Bot },
       { name: t('navigation.settings'), href: '/settings', icon: Settings },
       { name: t('navigation.advanced'), href: '/advanced', icon: Wrench },
     ],
@@ -128,7 +121,7 @@ export function AppSidebar() {
             <div className="relative flex items-center justify-center w-full">
               <Image
                 src="/logo.svg"
-                alt="Open Notebook"
+                alt="Book Navigator"
                 width={32}
                 height={32}
                 className="transition-opacity group-hover:opacity-0"
@@ -252,7 +245,7 @@ export function AppSidebar() {
                 <Separator className="my-3" />
               )}
               <div className="space-y-1">
-                {!isCollapsed && (
+                {!isCollapsed && section.title && (
                   <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/60">
                     {section.title}
                   </h3>
