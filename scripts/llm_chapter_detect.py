@@ -161,8 +161,94 @@ def coverage_warnings(positions: list[int], total_len: int) -> list[str]:
     return warns
 
 
+# 前付け・後付けの見出し語（読み順の先頭/末尾に固定するグループ判定に使う）
+_FRONT_RE = re.compile(
+    r"^(はじめに|まえがき|序章|序文|序$|序\s|プロローグ|刊行者の言葉|訳者例言|凡例|目次)"
+)
+_BACK_RE = re.compile(
+    r"^(おわりに|終章|結語|エピローグ|あとがき|付録|補遺|索引|参考文献|人名の説明)"
+)
+# 章番号の抽出（第N章 / N章 / エピソードN / 先頭の数字）。漢数字も算用数字も拾う。
+_KANJI_NUM = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7,
+              "八": 8, "九": 9, "十": 10}
+
+
+def _parse_chapter_number(title: str) -> "int | None":
+    """章タイトルから章番号を取り出す。取れなければ None。
+
+    「第12章」「第十二章」「エピソード3」「3 戦略」など、書籍ごとに違う表記を
+    同じ整数へ落とす。番号が取れた章が十分あるときだけ読み順の並べ替えを行う。
+    """
+    t = (title or "").strip()
+    m = re.match(r"^第\s*([0-9０-９]+|[一二三四五六七八九十]+)\s*[章部節]", t)
+    if not m:
+        m = re.match(r"^(?:エピソード|Chapter|Part)\s*([0-9０-９]+)", t, re.IGNORECASE)
+    if not m:
+        m = re.match(r"^([0-9０-９]+)[\s.．、]", t)
+    if not m:
+        # 「十四 資本と労働との闘争」のように、第/章を伴わない漢数字だけの節番号
+        # （古い訳書に多い）。後続に区切りがある場合のみ番号とみなす。
+        m = re.match(r"^([一二三四五六七八九十]+)[\s　]", t)
+    if not m:
+        return None
+    raw = m.group(1)
+    raw = raw.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    if raw.isdigit():
+        return int(raw)
+    # 漢数字（十/十N/N十N の簡易解釈。書籍の章番号は概ね 1〜99）
+    total, tens = 0, 0
+    for ch in raw:
+        v = _KANJI_NUM.get(ch)
+        if v is None:
+            return None
+        if v == 10:
+            tens = (tens or 1) * 10
+            total += tens
+            tens = 0
+        else:
+            total += v
+    return total or None
+
+
+def chapter_order_key(title: str, index: int) -> tuple:
+    """論理的な読み順のソートキー (group, number, index)。
+
+    group: 0=前付け（はじめに等） / 1=本編 / 2=後付け（おわりに等）。
+    本編は章番号順。番号が無い章は元の並び（index）を保つ。
+    """
+    t = (title or "").strip()
+    if _FRONT_RE.match(t):
+        return (0, index, index)
+    if _BACK_RE.match(t):
+        return (2, index, index)
+    num = _parse_chapter_number(t)
+    return (1, num if num is not None else 10**6 + index, index)
+
+
+def should_reorder(titles: list[str], min_numbered_ratio: float = 0.6) -> tuple:
+    """読み順の並べ替えを行ってよいか判定する（安全側に倒す純関数）。
+
+    章番号が十分に取れないと並べ替えは「改善」でなく「破壊」になり得るため、
+    本編章の 60% 以上から番号が取れるときだけ許可する。返り値は
+    (可否, 理由)。
+    """
+    body = [t for t in titles if not _FRONT_RE.match((t or "").strip())
+            and not _BACK_RE.match((t or "").strip())]
+    if len(body) < 2:
+        return (False, "本編章が2つ未満（並べ替え不要）")
+    numbered = [t for t in body if _parse_chapter_number(t) is not None]
+    ratio = len(numbered) / len(body)
+    if ratio < min_numbered_ratio:
+        return (False, f"章番号が取れたのは {len(numbered)}/{len(body)} のみ（並べ替えは危険）")
+    nums = [_parse_chapter_number(t) for t in numbered]
+    if len(set(nums)) != len(nums):
+        return (False, "章番号が重複している（並べ替えは危険）")
+    return (True, f"章番号を {len(numbered)}/{len(body)} から取得")
+
+
 def build_injected_source(
-    ft: str, chapters: list[dict], back_matter_anchor: "str | None"
+    ft: str, chapters: list[dict], back_matter_anchor: "str | None",
+    reorder: bool = True,
 ) -> dict:
     """章検出結果(chapters)を DN本文(ft)へ適用し、注入済みテキストを組む（純関数）。
 
@@ -184,32 +270,67 @@ def build_injected_source(
     trimmed = ft[:end]
     stripped = re.sub(r"(?m)^#{1,6}[ \t]+", "", trimmed)
 
-    reloc: list[tuple[int, str]] = []
+    # 1. 各章のアンカーを**独立に**探す（文書内のどこにあってもよい）。
+    #    従来は前章より後ろだけを探していたため、物理順が壊れた本（第2章の本文が
+    #    第1章より前にある等）で後続章が軒並み棄却されていた。
+    found: list[tuple[int, str]] = []
     ungrounded = 0
-    cursor = 0
+    used: set[int] = set()
     for ch in chapters:
         anchor = ch.get("anchor", "")
         title = (ch.get("title") or "").strip()
-        pos = _find_anchor(stripped, anchor, cursor)
-        if pos == -1 or not title:
+        pos = _find_anchor(stripped, anchor, 0)
+        if pos == -1 or not title or pos in used:
             continue
         if not title_is_grounded(title, stripped, near=pos):
             ungrounded += 1
             marker = _MARKER_RE.match(title)
             title = marker.group(0).strip() if marker else title
-        reloc.append((pos, title))
-        cursor = pos + 1
+        used.add(pos)
+        found.append((pos, title))
 
-    warnings = coverage_warnings([p for p, _ in reloc], len(stripped))
-    for pos, title in sorted(reloc, reverse=True):
-        stripped = stripped[:pos] + f"## {title}\n\n" + stripped[pos:]
+    warnings = coverage_warnings([p for p, _ in found], len(stripped))
+    if not found:
+        return {"text": stripped, "chapter_count": 0, "ungrounded": ungrounded,
+                "warnings": warnings, "end": end, "reordered": False,
+                "reorder_reason": "章が特定できず"}
+
+    # 2. 物理順に並べてセグメント化（各章 = 自分のアンカーから次のアンカー直前まで）
+    by_pos = sorted(found)
+    preamble = stripped[: by_pos[0][0]]
+    segments: list[dict] = []
+    for i, (pos, title) in enumerate(by_pos):
+        seg_end = by_pos[i + 1][0] if i + 1 < len(by_pos) else len(stripped)
+        segments.append({"title": title, "body": stripped[pos:seg_end]})
+
+    # 3. 論理順（章番号順）に並べ替える。番号が十分取れない場合は物理順のまま。
+    reordered = False
+    ok, reason = should_reorder([s["title"] for s in segments]) if reorder else (
+        False, "並べ替え無効"
+    )
+    if ok:
+        ordered = sorted(
+            enumerate(segments),
+            key=lambda t: chapter_order_key(t[1]["title"], t[0]),
+        )
+        new_segments = [s for _, s in ordered]
+        reordered = [s["title"] for s in new_segments] != [s["title"] for s in segments]
+        segments = new_segments
+
+    # 4. 見出しを付けて連結。本文の欠落が起きないことを決定論で検証する。
+    out = preamble + "".join(f"## {s['title']}\n\n{s['body']}" for s in segments)
+    body_chars = len(preamble) + sum(len(s["body"]) for s in segments)
+    if body_chars != len(stripped):
+        warnings.append(f"本文長が不一致（{body_chars} != {len(stripped)}）")
 
     return {
-        "text": stripped,
-        "chapter_count": len(reloc),
+        "text": out,
+        "chapter_count": len(segments),
         "ungrounded": ungrounded,
         "warnings": warnings,
         "end": end,
+        "reordered": reordered,
+        "reorder_reason": reason,
     }
 
 
@@ -282,6 +403,10 @@ async def detect(name: str, apply: bool) -> None:
         print("  ⚠ カバレッジ警告: " + " / ".join(result["warnings"]))
     if result["ungrounded"]:
         print(f"  ⚠ 未実在タイトル {result['ungrounded']}件（マーカーのみに縮退）")
+    if result.get("reordered"):
+        print(f"  ↕ 読み順を章番号順に再構成しました（{result.get('reorder_reason')}）")
+    elif result.get("reorder_reason"):
+        print(f"  ・読み順の並べ替えは見送り: {result.get('reorder_reason')}")
 
     await repo_query(
         "UPDATE source SET full_text_backup = full_text, full_text = $t WHERE type::string(id)=$s",

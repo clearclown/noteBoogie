@@ -4,6 +4,7 @@
 """
 
 import importlib
+import re
 
 import pytest
 
@@ -450,3 +451,162 @@ class TestInjectFile:
         p = tmp_path / "c.md"
         p.write_text("# 書名\n見出しの無いただの本文が続く。", encoding="utf-8")
         assert inj.inject(p, dry_run=False) == 0
+
+
+# =========================================================================
+# 読み順の再構成（順序崩れ34冊への対応）
+# 変換器のページ順バグでソースの章が前後する。誤って本文を壊さないことが最重要。
+# =========================================================================
+
+
+class TestParseChapterNumber:
+    def test_arabic(self):
+        assert llm._parse_chapter_number("第3章 戦略") == 3
+
+    def test_fullwidth_arabic(self):
+        assert llm._parse_chapter_number("第１２章 まとめ") == 12
+
+    def test_kanji_simple(self):
+        assert llm._parse_chapter_number("第五章 分析") == 5
+
+    def test_kanji_ten(self):
+        assert llm._parse_chapter_number("第十章 応用") == 10
+
+    def test_kanji_teens(self):
+        # 古い訳書に多い「十四 資本と労働との闘争」形式（第/章を伴わない）
+        assert llm._parse_chapter_number("十四 資本と労働との闘争") == 14
+        assert llm._parse_chapter_number("第十四章 資本") == 14
+
+    def test_episode_form(self):
+        assert llm._parse_chapter_number("エピソード7 数字のセンス") == 7
+
+    def test_bare_number(self):
+        assert llm._parse_chapter_number("3 決断と行動") == 3
+
+    def test_no_number(self):
+        assert llm._parse_chapter_number("はじめに") is None
+        assert llm._parse_chapter_number("戦略ノート") is None
+
+
+class TestChapterOrderKey:
+    def test_front_matter_sorts_first(self):
+        assert llm.chapter_order_key("はじめに", 5)[0] == 0
+        assert llm.chapter_order_key("プロローグ", 9)[0] == 0
+
+    def test_back_matter_sorts_last(self):
+        assert llm.chapter_order_key("おわりに", 0)[0] == 2
+        assert llm.chapter_order_key("付録 決議", 1)[0] == 2
+
+    def test_body_sorted_by_chapter_number(self):
+        k1 = llm.chapter_order_key("第1章 A", 9)
+        k2 = llm.chapter_order_key("第2章 B", 0)
+        assert k1 < k2  # 元の並びが逆でも章番号が優先される
+
+    def test_unnumbered_body_keeps_original_order(self):
+        a = llm.chapter_order_key("戦略ノート", 3)
+        b = llm.chapter_order_key("戦略ノート", 7)
+        assert a < b
+
+
+class TestShouldReorder:
+    def test_allows_when_mostly_numbered(self):
+        ok, _ = llm.should_reorder(["はじめに", "第1章 A", "第2章 B", "第3章 C"])
+        assert ok is True
+
+    def test_refuses_when_few_numbers(self):
+        ok, why = llm.should_reorder(["扉", "ノート", "コラム", "第1章 A"])
+        assert ok is False
+        assert "章番号" in why
+
+    def test_refuses_on_duplicate_numbers(self):
+        ok, why = llm.should_reorder(["第1章 A", "第1章 B", "第2章 C"])
+        assert ok is False
+        assert "重複" in why
+
+    def test_refuses_when_too_few_chapters(self):
+        ok, _ = llm.should_reorder(["第1章 A"])
+        assert ok is False
+
+
+class TestReorderedReconstruction:
+    def _chapters(self, *pairs):
+        return [{"title": t, "anchor": a} for t, a in pairs]
+
+    def test_scrambled_source_is_restored_to_reading_order(self):
+        # 物理順が 第2章 → 第1章 と壊れているソース
+        ft = "序文の文章。\n第二章の本文はここから始まります。\n第一章の本文はここから始まります。"
+        chapters = self._chapters(
+            ("第1章 序論", "第一章の本文はここから始まります"),
+            ("第2章 本論", "第二章の本文はここから始まります"),
+        )
+        r = llm.build_injected_source(ft, chapters, None)
+        assert r["chapter_count"] == 2
+        assert r["reordered"] is True
+        t = r["text"]
+        assert t.index("## 第1章 序論") < t.index("## 第2章 本論")  # 読み順に是正
+        # 各章の本文が正しく付いてくる
+        assert t.index("第一章の本文") < t.index("## 第2章")
+
+    def test_out_of_order_chapters_are_not_dropped(self):
+        # 旧実装（単調探索）では後ろの章が棄却されていた回帰
+        ft = "第三章の本文。\n第一章の本文。\n第二章の本文。"
+        chapters = self._chapters(
+            ("第1章 A", "第一章の本文"),
+            ("第2章 B", "第二章の本文"),
+            ("第3章 C", "第三章の本文"),
+        )
+        r = llm.build_injected_source(ft, chapters, None)
+        assert r["chapter_count"] == 3  # 1つも落ちない
+
+    def test_no_text_is_lost_during_reconstruction(self):
+        ft = "前付け。\n第二章の本文が長く続く。\n第一章の本文も長く続く。"
+        chapters = self._chapters(
+            ("第1章 A", "第一章の本文も長く続く"),
+            ("第2章 B", "第二章の本文が長く続く"),
+        )
+        r = llm.build_injected_source(ft, chapters, None)
+        # 見出し行を除けば元の文字がすべて残っている
+        body_only = re.sub(r"(?m)^## .*\n\n", "", r["text"])
+        for fragment in ["前付け。", "第一章の本文も長く続く", "第二章の本文が長く続く"]:
+            assert fragment in body_only
+        assert not r["warnings"] or all("不一致" not in w for w in r["warnings"])
+
+    def test_already_ordered_source_is_untouched(self):
+        ft = "第一章の本文。\n第二章の本文。"
+        chapters = self._chapters(
+            ("第1章 A", "第一章の本文"), ("第2章 B", "第二章の本文")
+        )
+        r = llm.build_injected_source(ft, chapters, None)
+        assert r["reordered"] is False  # 並べ替え不要と判定される
+
+    def test_unnumbered_chapters_are_not_reordered(self):
+        # 番号が取れない本は安全側に倒し、物理順を保つ
+        ft = "戦略ノートの本文。\nコラムの本文。"
+        chapters = self._chapters(
+            ("コラム", "コラムの本文"), ("戦略ノート", "戦略ノートの本文")
+        )
+        r = llm.build_injected_source(ft, chapters, None)
+        assert r["reordered"] is False
+        assert "危険" in r["reorder_reason"] or "2つ未満" in r["reorder_reason"]
+
+    def test_reorder_can_be_disabled(self):
+        ft = "第二章の本文。\n第一章の本文。"
+        chapters = self._chapters(
+            ("第1章 A", "第一章の本文"), ("第2章 B", "第二章の本文")
+        )
+        r = llm.build_injected_source(ft, chapters, None, reorder=False)
+        assert r["reordered"] is False
+
+    def test_front_and_back_matter_bracket_the_body(self):
+        ft = ("おわりにの本文です。\n第二章の本文です。\n"
+              "はじめにの本文です。\n第一章の本文です。")
+        chapters = self._chapters(
+            ("はじめに", "はじめにの本文です"),
+            ("第1章 A", "第一章の本文です"),
+            ("第2章 B", "第二章の本文です"),
+            ("おわりに", "おわりにの本文です"),
+        )
+        r = llm.build_injected_source(ft, chapters, None)
+        t = r["text"]
+        assert (t.index("## はじめに") < t.index("## 第1章 A")
+                < t.index("## 第2章 B") < t.index("## おわりに"))

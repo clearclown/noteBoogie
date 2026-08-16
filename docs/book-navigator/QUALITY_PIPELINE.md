@@ -36,7 +36,7 @@ DN（superbook-pdf）は**テキスト抽出は良好**だが、**構造の検�
 | 層 | 評価 | 実測 |
 |---|---|---|
 | ラスタライズ + OCR(YomiToku) | 良好 | 320ページ本で本文17万字をクリーンに抽出 |
-| **読み順** | 破綻 | 35/67冊で章順スクランブル（[DN #58](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/58)） |
+| **読み順** | 破綻 | 34/67冊で章順スクランブル。[#58](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/58) 修正後も再現するため [#69](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/69) で主経路の採番確認を依頼中。下流では**章番号による読み順の再構成**で回避する（下記 3-2） |
 | **見出し検出** | 破綻 | 偽陽性（著者名・ページ番号・本文行を `##` 化）と偽陰性（`##` が 0個の本）が同時に起きる（[#61](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/61)） |
 | **本編/巻末の区別** | 無し | 出版目録・索引・他書の題名一覧を本文として取り込む（[#60](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/60)） |
 | Markdown 書式 | 問題（修正済） | ページ区切り `---` が下流で Setext 見出しと誤認され章検出が暴走（[#59](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/59)） |
@@ -91,6 +91,22 @@ LLM に文章を書かせず、**DN が抽出した文字列に印を付けさ�
 | LLM が章タイトルを創作する | **タイトルの中身が本文に実在必須**。未実在はマーカーのみに縮退 | `title_is_grounded` |
 | 章が欠落・偏る | **カバレッジの決定論チェック**（前付け過大・分割漏れ・空章） | `coverage_warnings` |
 | Vision の画像OCR幻覚 | Vision は**転写に使わない**。「章見出しの有無」を報告する照合役のみ | `qa_sample_vision.py` |
+
+### 3-2. 読み順の再構成（順序崩れ対策）
+
+変換器のページ順バグ（[#69](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/issues/69)）で、
+ソースの時点で章が前後している本が **34/67冊**ある。見出しを注入するだけでは直らないため、
+`build_injected_source` が次の手順で読み順を復元する:
+
+1. 各章のアンカーを**独立に**探す（従来は前章より後ろしか探さず、順序が崩れた本で
+   後続章が軒並み棄却されていた）
+2. 物理順にセグメント化（各章 = 自分のアンカーから次のアンカー直前まで）
+3. **章番号順に並べ替える**（前付け → 本編（番号順）→ 後付け）
+4. 連結し、**本文長が一致することを検証**（欠落したら警告）
+
+**安全側の判断**: 本編章の **60%以上から章番号が取れるときだけ**並べ替える。
+番号が取れない本（コラム・戦略ノート等が主体）で無理に並べ替えると、改善ではなく
+破壊になるため、そのときは物理順のまま残して理由を出力する。
 
 ### コスト構造
 
