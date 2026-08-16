@@ -4,6 +4,8 @@
 
 Google NotebookLM の「音声概要 + ソースに聞く」体験を、自分の蔵書・自分のモデル選択・自分のマシンで超えることを目標にした [Open Notebook](https://github.com/lfnovo/open-notebook) の個人フォークです。
 
+**目的は「積んである本を、耳で聴いて頭に入る形に変えること」**。判断基準は ①本に書いてあることだけを言う ②要点を落とさない ③耳で分かる ④蔵書を自分の管理下に置く、の順です（[PMVV.md](docs/book-navigator/PMVV.md)）。台本の採点式もこの優先順位をそのまま重みにしています。
+
 > フォーク元（Open Notebook 本体）の機能・設定・デプロイは [docs/](docs/index.md)（英語）と [docs/UPSTREAM_README.md](docs/UPSTREAM_README.md) を参照してください。この README は本フォークの追加機能（Book Navigator）を扱います。
 
 ---
