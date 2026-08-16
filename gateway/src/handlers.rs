@@ -374,7 +374,24 @@ pub async fn generate_audiobook(
     let mut jobs: Vec<Job> = Vec::with_capacity(chapter_count);
     for (idx, ch) in chapters.iter().enumerate() {
         let ep_id_part = uuid::Uuid::new_v4().simple().to_string();
-        let ep_name = format!("第{}章：{}", idx + 1, ch.title);
+        // 章タイトルが既に「第N章…」で始まるなら二重前置しない（注入見出しの本で
+        // 「第2章：第1章 …」になるのを防ぐ）。先頭章(idx 0)は前付け扱いで「序章」。
+        let title_has_marker = {
+            let t = ch.title.trim_start();
+            t.starts_with('第')
+                && t.chars().nth(1).is_some_and(|c| {
+                    c.is_ascii_digit()
+                        || ('０'..='９').contains(&c)
+                        || "一二三四五六七八九十百".contains(c)
+                })
+        };
+        let ep_name = if title_has_marker {
+            ch.title.clone()
+        } else if idx == 0 {
+            format!("序章 {}", ch.title)
+        } else {
+            format!("第{}章 {}", idx, ch.title)
+        };
         let chapter_briefing = format!("この章のタイトル：{}\n\n{}", ch.title, base_briefing);
         let episode_full_id = match repo::create_chapter_episode(
             db,

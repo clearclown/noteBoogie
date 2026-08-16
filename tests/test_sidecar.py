@@ -525,3 +525,244 @@ async def test_run_create_podcast_routes_on_env_flag(monkeypatch, tmp_path):
     monkeypatch.setenv("SIDECAR_SINGLE_PASS", "0")
     await pr.run_create_podcast(**kwargs)
     two_pass.assert_awaited_once()
+
+
+# --- transcript generation retry (堅牢性: 壊れた構造化出力への保険) ---------
+# 実測: 台本LLMがまれに `"dialogue"` を `"dialogே"`/`"dialogio"` と壊し、
+# ValidatedTranscript のパースが例外化して章まるごと落ちる。独立ドローなので
+# 引き直せば通る — その保険が働くことを固定する。
+
+
+@pytest.mark.asyncio
+async def test_generate_transcript_retries_past_transient_parse_failure(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sidecar import podcast_runner as pr
+
+    calls = {"n": 0}
+
+    async def flaky(state, config=None):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise ValueError(
+                "Failed to parse ValidatedTranscript ... transcript.1.dialogue "
+                "Field required (got key 'dialogே')"
+            )
+        return {"transcript": [{"speaker": "Mentor", "dialogue": "本文"}]}
+
+    graph = MagicMock()
+    graph.ainvoke = AsyncMock(side_effect=flaky)
+    monkeypatch.setattr(pr, "_transcript_graph", graph)
+    monkeypatch.setenv("SIDECAR_TRANSCRIPT_ATTEMPTS", "3")
+
+    result = await pr._generate_transcript(lambda b: {"briefing": b}, "brief", {})
+    assert result["transcript"][0]["dialogue"] == "本文"
+    assert calls["n"] == 2  # 1回失敗 → 2回目で成功
+
+
+@pytest.mark.asyncio
+async def test_generate_transcript_raises_after_exhausting_attempts(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sidecar import podcast_runner as pr
+
+    async def always_fail(state, config=None):
+        raise ValueError("OUTPUT_PARSING_FAILURE")
+
+    graph = MagicMock()
+    graph.ainvoke = AsyncMock(side_effect=always_fail)
+    monkeypatch.setattr(pr, "_transcript_graph", graph)
+    monkeypatch.setenv("SIDECAR_TRANSCRIPT_ATTEMPTS", "2")
+
+    with pytest.raises(ValueError, match="台本生成が2回とも失敗"):
+        await pr._generate_transcript(lambda b: {"briefing": b}, "brief", {})
+    assert graph.ainvoke.await_count == 2
+
+
+# --- 壊れキー事前修復 (_repair_transcript_keys) ------------------------------
+# 台本LLMが `"dialogue"` を `"dialogே"`/`"dialogine"` と化けさせても、パース前に
+# dict レベルで改名して救う。リトライより前に第1試行で直るのが狙い。
+
+
+def test_repair_transcript_keys_renames_corrupted_dialogue_key():
+    import json
+
+    from sidecar.podcast_runner import _repair_transcript_keys
+
+    broken = json.dumps(
+        {
+            "transcript": [
+                {"speaker": "Mentor", "dialogue": "正常です。"},
+                {"speaker": "Mentor", "dialogே": "壊れたキーです。"},
+                {"speaker": "Mentor", "dialogine": "これも壊れ。"},
+            ]
+        },
+        ensure_ascii=False,
+    )
+    fixed = json.loads(_repair_transcript_keys(broken))
+    dialogues = [seg["dialogue"] for seg in fixed["transcript"]]
+    assert dialogues == ["正常です。", "壊れたキーです。", "これも壊れ。"]
+    assert all(set(seg.keys()) == {"speaker", "dialogue"} for seg in fixed["transcript"])
+
+
+def test_repair_transcript_keys_passthrough_when_valid():
+    import json
+
+    from sidecar.podcast_runner import _repair_transcript_keys
+
+    good = json.dumps(
+        {"transcript": [{"speaker": "Mentor", "dialogue": "無傷。"}]},
+        ensure_ascii=False,
+    )
+    # 修復不要なら原文字列をそのまま返す（フェンス等の既存挙動を壊さない）
+    assert _repair_transcript_keys(good) == good
+
+
+def test_repair_transcript_keys_leaves_non_json_untouched():
+    from sidecar.podcast_runner import _repair_transcript_keys
+
+    assert _repair_transcript_keys("これはJSONではない") == "これはJSONではない"
+
+
+def test_repair_transcript_keys_skips_ambiguous_segments():
+    import json
+
+    from sidecar.podcast_runner import _repair_transcript_keys
+
+    # speaker が無い / 余分キーが複数 → 曖昧なので触らない（誤修復を避ける）
+    ambiguous = json.dumps(
+        {"transcript": [{"foo": "a", "bar": "b"}]}, ensure_ascii=False
+    )
+    assert _repair_transcript_keys(ambiguous) == ambiguous
+
+
+# --- 薄い章は短いTTSでよい（長さ固定をやめる） -------------------------------
+# 中扉・はじめに等の薄い章を固定3部構成に強制するとLLMが捏造して水増しし、
+# grounding が落ちてゲート棄却される。薄い章は簡潔・grounded に通す。
+
+
+def test_is_thin_chapter_threshold(monkeypatch):
+    from sidecar.podcast_runner import _is_thin_chapter
+
+    monkeypatch.delenv("SIDECAR_SHORT_CHAPTER_CHARS", raising=False)
+    assert _is_thin_chapter("短い" * 10) is True  # 20字
+    assert _is_thin_chapter("あ" * 2000) is False
+    monkeypatch.setenv("SIDECAR_SHORT_CHAPTER_CHARS", "50")
+    assert _is_thin_chapter("あ" * 40) is True
+    assert _is_thin_chapter("あ" * 60) is False
+
+
+def test_thin_chapter_outline_is_single_short_segment():
+    from sidecar.podcast_runner import build_thin_chapter_outline
+
+    outline = build_thin_chapter_outline()
+    assert len(outline.segments) == 1
+    assert outline.segments[0].size == "short"
+
+
+def test_thin_critique_does_not_demand_fixed_structure():
+    from sidecar.podcast_runner import build_gate_critique
+
+    class Ev:
+        composite = 0.4
+        structure = 0.2
+        grounding = 0.3
+        politeness = 0.95
+        length_ratio = 10.0
+        unsupported_terms = ["架空語", "捏造語"]
+
+    thin = build_gate_critique(Ev(), 0.6, thin=True)
+    # 薄章では固定構成を「要求」しない（むしろ合わせるなと言う）
+    assert "1つ目は" not in thin
+    assert "無理に合わせない" in thin
+    # 捏造の除去は促す
+    assert "捏造" in thin and "架空語" in thin
+
+    full = build_gate_critique(Ev(), 0.6, thin=False)
+    assert "1つ目は" in full  # 通常章は従来通り構成を要求
+
+
+@pytest.mark.asyncio
+async def test_gate_passes_thin_chapter_on_grounding_not_structure(monkeypatch, tmp_path):
+    # 薄い章＋grounded な短い台本 → 構成が無くても通る
+    pr, transcript_graph, audio_graph, events = _gate_test_setup(
+        monkeypatch, tmp_path, ["短い本文です。要点だけ述べます。"]
+    )
+    monkeypatch.delenv("SIDECAR_GATE", raising=False)
+    monkeypatch.setenv("SIDECAR_SHORT_CHAPTER_CHARS", "100000")  # 全て薄章扱い
+    result = await pr.create_podcast_single_pass(
+        content="短い本文です。要点だけ述べます。",
+        briefing="b", episode_name="中扉",
+        output_dir=str(tmp_path), speaker_config="s", episode_profile="p",
+    )
+    assert result["final_output_file_path"].endswith("out.mp3")
+    assert transcript_graph.ainvoke.await_count == 1  # 構成不足で棄却されない
+    assert events[0]["details"]["thin"] is True
+
+
+# --- TTS 'parts' 欠落ガード（章失敗の再発防止） -----------------------------
+# Gemini TTS が稀に parts の無い応答を返し KeyError で章全体が落ちる問題を、
+# リトライで吸収することを固定する。
+
+
+@pytest.mark.asyncio
+async def test_tts_parts_guard_retries_then_succeeds(monkeypatch):
+    import esperanto.providers.tts.google as g
+
+    from sidecar import podcast_runner as pr
+
+    async def no_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", no_sleep)
+    calls = {"n": 0}
+
+    class FakeTTS:
+        async def agenerate_speech(self, *a, **k):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise KeyError("parts")
+            return "audio-ok"
+
+    monkeypatch.setattr(g, "GoogleTextToSpeechModel", FakeTTS, raising=False)
+    pr._install_tts_parts_guard()
+    result = await FakeTTS().agenerate_speech()
+    assert result == "audio-ok"
+    assert calls["n"] == 3  # 2回失敗 → 3回目で成功
+
+
+@pytest.mark.asyncio
+async def test_tts_parts_guard_raises_clear_error_after_exhaustion(monkeypatch):
+    import esperanto.providers.tts.google as g
+
+    from sidecar import podcast_runner as pr
+
+    async def no_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", no_sleep)
+
+    class AlwaysMissing:
+        async def agenerate_speech(self, *a, **k):
+            raise KeyError("parts")
+
+    monkeypatch.setattr(g, "GoogleTextToSpeechModel", AlwaysMissing, raising=False)
+    pr._install_tts_parts_guard()
+    with pytest.raises(ValueError, match="parts"):
+        await AlwaysMissing().agenerate_speech()
+
+
+@pytest.mark.asyncio
+async def test_tts_parts_guard_reraises_unrelated_keyerror(monkeypatch):
+    import esperanto.providers.tts.google as g
+
+    from sidecar import podcast_runner as pr
+
+    class OtherError:
+        async def agenerate_speech(self, *a, **k):
+            raise KeyError("api_key")  # parts/candidates 以外は即再送出
+
+    monkeypatch.setattr(g, "GoogleTextToSpeechModel", OtherError, raising=False)
+    pr._install_tts_parts_guard()
+    with pytest.raises(KeyError, match="api_key"):
+        await OtherError().agenerate_speech()

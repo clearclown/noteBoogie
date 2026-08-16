@@ -57,6 +57,53 @@ def build_synthetic_outline(num_segments: int):
     return Outline(segments=segments[: max(1, min(num_segments, len(segments)))] if num_segments < 3 else segments)
 
 
+# この文字数未満の章は「薄い章」とみなし、固定の3部構成を強制しない。
+# 中扉・はじめに・短いコラム等をフルの導入→3要点→アクションプランに無理やり
+# 合わせると、LLM が本文に無い内容を創作して水増しし grounding が落ちてゲート
+# 棄却される（実測 grounding 0.19 / 長さ比 12.38）。短い章は短い台本でよい。
+SHORT_CHAPTER_CHARS = 1500
+
+
+def _is_thin_chapter(content: str) -> bool:
+    import os
+
+    try:
+        threshold = int(os.getenv("SIDECAR_SHORT_CHAPTER_CHARS", str(SHORT_CHAPTER_CHARS)))
+    except ValueError:
+        threshold = SHORT_CHAPTER_CHARS
+    return len((content or "").strip()) < threshold
+
+
+def build_thin_chapter_outline():
+    """薄い章向けの最小アウトライン。固定構成を課さず、内容量なりに簡潔に。"""
+    from podcast_creator.core import Outline, Segment
+
+    return Outline(
+        segments=[
+            Segment(
+                name="要点",
+                description=(
+                    "この章に実際に書かれている内容だけを、簡潔にまとめる。"
+                    "本文に無い話を創作して長さを埋めない。固定の構成（3つの要点や"
+                    "アクションプラン）に無理に合わせず、短くてよい。"
+                ),
+                size="short",
+            )
+        ]
+    )
+
+
+# 薄い章の briefing に添える指示。ゲート(grounding重視)を素直に通すため、
+# 「短くてよい・創作禁止」を明示する。
+THIN_CHAPTER_BRIEFING_NOTE = (
+    "\n\n## この章について（重要）\n"
+    "この章は内容が短い。書かれていることだけを簡潔にまとめること。"
+    "3つの要点やアクションプランといった固定の型に無理に合わせたり、"
+    "本文に無い内容を創作して長さを水増ししたりしてはならない。"
+    "内容が少なければ台本も短くてよい。"
+)
+
+
 def _build_transcript_graph():
     """Transcript-only graph (no outline node, no TTS) — the gate scores here."""
     from langgraph.graph import END, START, StateGraph
@@ -111,8 +158,178 @@ def gate_threshold() -> float:
         return 0.6
 
 
-def build_gate_critique(ev, threshold: float) -> str:
-    """未達指標を台本LLMへの日本語の改善指示に変換する（再生成1回で使う）。"""
+def transcript_max_attempts() -> int:
+    """台本LLMの再試行回数（既定5）。壊れた構造化出力への保険。
+
+    事前修復([`_repair_transcript_keys`])が構造的に有効な JSON のキー破損は
+    第1試行で直すので、リトライは修復で拾えない重度の破損だけを引き受ける。
+    """
+    import os
+
+    try:
+        return max(1, int(os.getenv("SIDECAR_TRANSCRIPT_ATTEMPTS", "5")))
+    except ValueError:
+        return 5
+
+
+def _repair_transcript_keys(content):
+    """台本LLMが壊した `"dialogue"` キーを、パース前に dict レベルで修復する。
+
+    実測では `"dialogue"` が `"dialogே"`/`"dialogine"`/`"dialogume"` のように
+    末尾数文字だけ化ける。JSON 自体は構造的に有効（壊れキーも妥当な JSON 文字列）
+    なので、`json.loads` はできるが ValidatedTranscript の Pydantic 検証で
+    `dialogue` フィールド欠落として落ちる。各セグメントは `{"speaker", "dialogue"}`
+    の2キーのはず — `speaker` があり `dialogue` が無く、非 speaker キーがちょうど
+    1つなら、それを `dialogue` へ改名する。修復不要なら原文字列をそのまま返す
+    （マークダウンフェンス等の既存挙動を壊さない）。
+    """
+    import json
+    import re
+
+    if not isinstance(content, str):
+        return content
+    try:
+        data = json.loads(content)
+    except Exception:  # noqa: BLE001 - フェンス/前後テキスト付きは最初の {…} を試す
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        if not m:
+            return content
+        try:
+            data = json.loads(m.group(0))
+        except Exception:  # noqa: BLE001 - 修復不能なら原文のまま下流に委ねる
+            return content
+    segs = data.get("transcript") if isinstance(data, dict) else None
+    if not isinstance(segs, list):
+        return content
+    changed = False
+    for seg in segs:
+        if not isinstance(seg, dict) or "dialogue" in seg or "speaker" not in seg:
+            continue
+        others = [k for k in seg if k != "speaker"]
+        if len(others) == 1:
+            seg["dialogue"] = seg.pop(others[0])
+            changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else content
+
+
+def _install_tts_parts_guard() -> None:
+    """Google TTS(gemini-tts)の「parts欠落」応答による章失敗をリトライで吸収する。
+
+    esperanto の GoogleTextToSpeechModel.agenerate_speech は Gemini 応答から
+    `candidates[0].content.parts[0].inlineData.data` を無ガードで取り出すため、
+    Gemini が稀に parts の無い候補（一時的な空応答・安全フィルタ等）を返すと
+    KeyError('parts') で**章全体が失敗**する（再生成バッチで多発）。1クリップの
+    一過性失敗なので、引き直せば通ることが多い。ライブラリは非改変で、メソッドを
+    リトライ付きに差し替える。冪等。
+    """
+    try:
+        from esperanto.providers.tts.google import GoogleTextToSpeechModel
+    except Exception as e:  # noqa: BLE001 - 環境差で無ければ何もしない
+        logger.warning(f"TTS parts guard 未適用（esperanto未検出）: {e}")
+        return
+
+    orig = GoogleTextToSpeechModel.agenerate_speech
+    if getattr(orig, "_parts_guarded", False):
+        return
+
+    import asyncio as _asyncio
+
+    async def guarded(self, *args, **kwargs):
+        last: Exception | None = None
+        for attempt in range(4):
+            try:
+                return await orig(self, *args, **kwargs)
+            except KeyError as e:  # parts / candidates 欠落は一過性として再試行
+                if "parts" not in str(e) and "candidates" not in str(e):
+                    raise
+                last = e
+                logger.warning(
+                    f"TTS応答に parts が無い（{attempt + 1}/4回目）。再試行します。"
+                )
+                await _asyncio.sleep(1.0 * (attempt + 1))
+        raise ValueError(f"TTS応答に parts が無い状態が4回続きました: {last}")
+
+    guarded._parts_guarded = True  # type: ignore[attr-defined]
+    GoogleTextToSpeechModel.agenerate_speech = guarded  # type: ignore[method-assign]
+
+
+def _install_transcript_key_repair() -> None:
+    """podcast_creator の transcript パーサに壊れキー事前修復を差し込む。
+
+    ライブラリは非改変。`create_validated_transcript_parser` を包み、返すパーサの
+    `.invoke` の前段で [`_repair_transcript_keys`] を通す。nodes.py が import 済みの
+    名前を差し替えるので、単一パス/二パス両経路の generate_transcript_node に効く。
+    冪等（二重適用しない）。
+    """
+    from langchain_core.runnables import RunnableLambda
+    from podcast_creator import nodes as pc_nodes
+
+    orig = pc_nodes.create_validated_transcript_parser
+    if getattr(orig, "_key_repair_wrapped", False):
+        return
+
+    def wrapped(valid_speaker_names):
+        parser = orig(valid_speaker_names)
+        return RunnableLambda(
+            lambda content: parser.invoke(_repair_transcript_keys(content))
+        )
+
+    wrapped._key_repair_wrapped = True  # type: ignore[attr-defined]
+    pc_nodes.create_validated_transcript_parser = wrapped
+
+
+async def _generate_transcript(make_state_fn, briefing: str, config: dict):
+    """台本グラフを実行し、一過性の生成失敗はリトライする。
+
+    台本LLMはまれに壊れた構造化出力を返す。実測では `"dialogue"` のはずのキーが
+    `"dialogே"`（タミル文字混入）や `"dialogio"` になり、ValidatedTranscript の
+    パース（LangChain OUTPUT_PARSING_FAILURE）が例外化して章まるごと落ちていた。
+    各試行は独立した LLM ドローなので、引き直せばほぼ正しくパースできる。品質ゲート
+    のスコアリング再生成（低品質時）とは別レイヤの「そもそも生成に失敗した時」の保険。
+    """
+    attempts = transcript_max_attempts()
+    last_exc: Exception | None = None
+    for i in range(attempts):
+        try:
+            assert _transcript_graph is not None  # 呼び出し前に必ず構築済み
+            return await _transcript_graph.ainvoke(make_state_fn(briefing), config=config)
+        except Exception as e:  # noqa: BLE001 - transient LLM/parse failures are retryable
+            last_exc = e
+            logger.warning(
+                f"transcript generation attempt {i + 1}/{attempts} failed: "
+                f"{type(e).__name__}: {str(e)[:200]}"
+            )
+    raise ValueError(
+        f"台本生成が{attempts}回とも失敗しました"
+        f"（最後のエラー: {type(last_exc).__name__}: {str(last_exc)[:300]}）"
+    )
+
+
+# 薄い章の合格に必要な grounding 下限（捏造していないかだけを見る）。
+# 薄章は台本が短く fact-term 数も少ないため grounding 指標がノイジー。0.6 は
+# 「4割以上が本文由来」＝明白な捏造だけを弾く緩めの線（実測 0.67 を許容する）。
+GATE_THIN_GROUNDING_FLOOR = 0.6
+
+
+def build_gate_critique(ev, threshold: float, thin: bool = False) -> str:
+    """未達指標を台本LLMへの日本語の改善指示に変換する（再生成1回で使う）。
+
+    thin（薄い章）のときは構成・長さの指摘を出さない。フルの3部構成を求めると
+    簡潔化と矛盾して水増し→捏造を招くため、捏造の除去（grounding）だけを促す。
+    """
+    if thin:
+        terms = "、".join(str(t) for t in ev.unsupported_terms[:10])
+        lines = [
+            "## 品質レビュー指摘（前回の台本は本文に無い内容を創作していた。作り直すこと）",
+            "- この章は内容が短い。書かれていることだけを簡潔にまとめ、短くてよい。",
+            "- 固定の構成（3つの要点・アクションプラン）に無理に合わせないこと。",
+        ]
+        if terms:
+            lines.append(f"- 捏造禁止: 次の語は本文に無い。使わないこと: {terms}")
+        if ev.politeness < 0.9:
+            lines.append("- 文体: 文末は です/ます調で統一すること")
+        return "\n".join(lines)
+
     lines = [
         "## 品質レビュー指摘（前回の台本は品質ゲート未達。以下を必ず反映して作り直すこと）",
         f"- 前回スコア: {ev.composite:.2f}（合格ライン {threshold:.2f}）",
@@ -201,17 +418,30 @@ async def create_podcast_single_pass(
 
     effective_briefing = briefing or episode_config.default_briefing
 
+    # 薄い章は固定構成を強制せず、内容量に比例した短い台本にする（捏造→ゲート棄却の回避）。
+    thin = _is_thin_chapter(content)
+    if thin:
+        effective_briefing = effective_briefing + THIN_CHAPTER_BRIEFING_NOTE
+        logger.info(
+            f"thin chapter ({len(content.strip())} chars < threshold): "
+            f"using brief content-proportional outline"
+        )
+
     def make_state(state_briefing: str) -> PodcastState:
         return PodcastState(
             content=content,
             briefing=state_briefing,
-            num_segments=episode_config.num_segments or 3,
+            num_segments=1 if thin else (episode_config.num_segments or 3),
             language=(
                 resolve_language_name(episode_config.language)
                 if episode_config.language
                 else None
             ),
-            outline=build_synthetic_outline(episode_config.num_segments or 3),
+            outline=(
+                build_thin_chapter_outline()
+                if thin
+                else build_synthetic_outline(episode_config.num_segments or 3)
+            ),
             transcript=[],
             audio_clips=[],
             final_output_file_path=None,
@@ -229,34 +459,45 @@ async def create_podcast_single_pass(
     }
 
     # 段階1: transcript のみ生成し、TTS 前に採点する
-    state = await _transcript_graph.ainvoke(make_state(effective_briefing), config=config)
+    # （壊れた構造化出力による一過性失敗はここでリトライ吸収する）
+    state = await _generate_transcript(make_state, effective_briefing, config)
 
     if gate_enabled():
         from scripts.eval_transcript import evaluate_chapter, transcript_text
 
         threshold = gate_threshold()
-        attempts = [state]
-        evals = [
-            evaluate_chapter(episode_name, content, transcript_text(_to_jsonable(state.get("transcript"))))
-        ]
-        if evals[0].composite < threshold:
-            critique = build_gate_critique(evals[0], threshold)
-            logger.info(
-                f"Gate: composite={evals[0].composite:.2f} < {threshold:.2f}, "
-                f"regenerating transcript once with critique"
+
+        def score(s):
+            return evaluate_chapter(
+                episode_name, content, transcript_text(_to_jsonable(s.get("transcript")))
             )
-            retry_state = await _transcript_graph.ainvoke(
-                make_state(f"{effective_briefing}\n\n{critique}"), config=config
+
+        def passes(ev) -> bool:
+            # 薄い章は構成・長さを問わない。捏造していない(grounding)＋敬体だけ見る。
+            # フルの3部構成を求めると、簡潔化と矛盾して水増し→捏造を招くため。
+            if thin:
+                return ev.grounding >= GATE_THIN_GROUNDING_FLOOR and ev.politeness >= 0.7
+            return ev.composite >= threshold
+
+        attempts = [state]
+        evals = [score(state)]
+        if not passes(evals[0]):
+            critique = build_gate_critique(evals[0], threshold, thin=thin)
+            logger.info(
+                f"Gate: rejected (thin={thin}, composite={evals[0].composite:.2f}, "
+                f"grounding={evals[0].grounding:.2f}), regenerating once with critique"
+            )
+            retry_state = await _generate_transcript(
+                make_state, f"{effective_briefing}\n\n{critique}", config
             )
             attempts.append(retry_state)
-            evals.append(
-                evaluate_chapter(
-                    episode_name,
-                    content,
-                    transcript_text(_to_jsonable(retry_state.get("transcript"))),
-                )
-            )
-        best_index, passed = gate_decision(evals, threshold)
+            evals.append(score(retry_state))
+        # 薄い章は grounding 最大、通常は composite 最大を採用
+        if thin:
+            best_index = max(range(len(evals)), key=lambda i: evals[i].grounding)
+            passed = passes(evals[best_index])
+        else:
+            best_index, passed = gate_decision(evals, threshold)
         best_eval = evals[best_index]
         verdict = (
             "passed"
@@ -272,6 +513,7 @@ async def create_podcast_single_pass(
             verdict=verdict,
             details={
                 "threshold": threshold,
+                "thin": thin,
                 "attempts": [e.composite for e in evals],
                 "structure": best_eval.structure,
                 "grounding": best_eval.grounding,
@@ -282,9 +524,13 @@ async def create_podcast_single_pass(
         )
         if not passed:
             # ValueError → gRPC INVALID_ARGUMENT → gateway が generation_error に記録
+            reason = (
+                f"捏造過多(grounding={best_eval.grounding:.2f})"
+                if thin
+                else f"composite={best_eval.composite:.2f} (閾値 {threshold:.2f})"
+            )
             raise ValueError(
-                f"品質ゲート未達: composite={best_eval.composite:.2f} "
-                f"(閾値 {threshold:.2f}, 再生成1回込み)。"
+                f"品質ゲート未達: {reason}。"
                 f"構成{best_eval.structure:.2f}/グラウンディング{best_eval.grounding:.2f}/"
                 f"敬体{best_eval.politeness:.2f}/長さ比{best_eval.length_ratio}"
             )
@@ -436,6 +682,8 @@ async def run_create_podcast(
     import os
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
+    _install_transcript_key_repair()
+    _install_tts_parts_guard()
     await _configure_podcast_creator()
 
     # Single-pass (no outline LLM) is the DEFAULT: measured on the full book

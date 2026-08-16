@@ -50,7 +50,16 @@ fn collect_headings(markdown: &str) -> Vec<(usize, String, HeadingLevel)> {
                     && capturing.is_some() =>
             {
                 let (start, _) = capturing.take().unwrap();
-                headings.push((start, current_title.trim().to_string(), level));
+                // Only ATX headings (`#`/`##`) are real chapter markers. SuperBook
+                // emits a `---` page separator per page; CommonMark reads each one
+                // as a Setext underline, promoting the preceding text line to an
+                // H2 heading. On a 320-page scan that fabricated 286 headings and
+                // exploded chapter detection. An ATX heading's source range starts
+                // at the `#`; a Setext heading's starts at its text line — so a
+                // leading `#` distinguishes the two.
+                if markdown[start..].trim_start().starts_with('#') {
+                    headings.push((start, current_title.trim().to_string(), level));
+                }
             }
             _ => {}
         }
@@ -486,6 +495,24 @@ mod tests {
         assert!(chapters[0].body.contains("内容A。"));
         assert!(!chapters[0].body.contains("内容B。"));
         assert_eq!(chapters[1].title, "第二章 戦略");
+    }
+
+    #[test]
+    fn setext_underlines_from_page_separators_are_not_headings() {
+        // SuperBook emits a `---` separator per scanned page. CommonMark reads
+        // `text\n---` as a Setext H2, which fabricated 286 headings on a 320-page
+        // book and exploded chapter detection. Only ATX `#`/`##` may split.
+        let md = format!(
+            "# サンプル書籍\n{}\n---\n{}\n---\n## 第1章 序論\n{}\n\n## 第2章 本論\n{}",
+            body("前付け"),
+            body("続き"),
+            body("a"),
+            body("b")
+        );
+        let chapters = split_into_chapters(&md, "本");
+        let titles: Vec<&str> = chapters.iter().map(|c| c.title.as_str()).collect();
+        // H1 front matter (whole, `---` does NOT split it) + 2 ATX chapters.
+        assert_eq!(titles, vec!["サンプル書籍", "第1章 序論", "第2章 本論"]);
     }
 
     #[test]

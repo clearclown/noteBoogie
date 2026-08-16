@@ -267,8 +267,6 @@ class TestWeightedRecall:
 
     @pytest.mark.asyncio
     async def test_weight_load_failure_falls_back_to_neutral(self, monkeypatch):
-        call_count = {"n": 0}
-
         async def flaky_repo_query(q, binds=None):
             if "mentor_source_weight" in q:
                 raise RuntimeError("table missing")
