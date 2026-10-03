@@ -33,17 +33,17 @@ export default function PodcastsPage() {
           >
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('podcasts.chooseAView')}</p>
-              <TabsList aria-label={t('common.accessibility.podcastViews')} className="w-full max-w-md">
-                <TabsTrigger value="episodes">
-                  <Mic className="h-4 w-4" />
+              <TabsList aria-label={t('common.accessibility.podcastViews')} className="w-full max-w-md flex-wrap sm:flex-nowrap">
+                <TabsTrigger value="episodes" className="h-11 whitespace-nowrap px-1 text-xs sm:h-9 sm:px-4 sm:text-sm">
+                  <Mic className="hidden h-4 w-4 sm:block" />
                   {t('podcasts.episodesTab')}
                 </TabsTrigger>
-                <TabsTrigger value="audiobooks">
-                  <Headphones className="h-4 w-4" />
+                <TabsTrigger value="audiobooks" className="h-11 whitespace-nowrap px-1 text-xs sm:h-9 sm:px-4 sm:text-sm">
+                  <Headphones className="hidden h-4 w-4 sm:block" />
                   {t('podcasts.audiobooksTab')}
                 </TabsTrigger>
-                <TabsTrigger value="templates">
-                  <LayoutTemplate className="h-4 w-4" />
+                <TabsTrigger value="templates" className="h-11 whitespace-nowrap px-1 text-xs sm:h-9 sm:px-4 sm:text-sm">
+                  <LayoutTemplate className="hidden h-4 w-4 sm:block" />
                   {t('podcasts.templatesTab')}
                 </TabsTrigger>
               </TabsList>

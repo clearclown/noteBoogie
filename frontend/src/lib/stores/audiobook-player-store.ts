@@ -8,6 +8,11 @@ import { persist } from 'zustand/middleware'
  * and reloads (the <audio> element itself lives in AudiobooksTab and stops on
  * unmount — a known deviation from a fully persistent player).
  */
+export interface ListeningProgress {
+  chapterId: string
+  seconds: number
+}
+
 interface AudiobookPlayerState {
   autoAdvance: boolean
   lastAudiobookId: string | null
@@ -16,6 +21,8 @@ interface AudiobookPlayerState {
   playbackRate: number
   /** 音量 0〜1（iOS はOS音量が優先されJSからは変更不可） */
   volume: number
+  progress: Record<string, ListeningProgress>
+  saveProgress: (audiobookId: string, chapterId: string, seconds: number) => void
   setAutoAdvance: (value: boolean) => void
   setPosition: (audiobookId: string | null, chapterIndex: number | null) => void
   setPlaybackRate: (rate: number) => void
@@ -30,6 +37,19 @@ export const useAudiobookPlayerStore = create<AudiobookPlayerState>()(
       lastChapterIndex: null,
       playbackRate: 1.0,
       volume: 1.0,
+      progress: {},
+      saveProgress: (audiobookId, chapterId, seconds) => {
+        if (!Number.isFinite(seconds) || seconds < 0) return
+        const position = Math.floor(seconds)
+        set((state) => {
+          const previous = state.progress[audiobookId]
+          if (previous?.chapterId === chapterId && previous.seconds === position) return state
+          return {
+            lastAudiobookId: audiobookId,
+            progress: { ...state.progress, [audiobookId]: { chapterId, seconds: position } },
+          }
+        })
+      },
       setAutoAdvance: (value) => set({ autoAdvance: value }),
       setPosition: (audiobookId, chapterIndex) =>
         set({ lastAudiobookId: audiobookId, lastChapterIndex: chapterIndex }),

@@ -84,7 +84,7 @@ OCR本文の「ほぼ空の章」から LLM が尤もらしい台本を捏造す
 
 ## 既知の制約・設計上の逸脱
 
-- `<audio>` 要素はタブ内ローカル（ページ遷移で再生停止）。連続再生設定と視聴位置のみ zustand persist で永続化
+- `<audio>` 要素はタブ内ローカル（ページ遷移で再生停止）。連続再生設定と本ごとの章ID・秒単位の再生位置を zustand persist で保存。「この章に質問」は同じ画面で一時停止・再開する（[ADR-008](../7-DEVELOPMENT/decisions/ADR-008-chapter-listening-questions.md)）
 - `book_figure.path` は絶対パス保存 → コンテナ実行時は gateway が `/data/` 以降を `/app/data` に自動リマップ（`repo::remap_into_data_folder`、共有ボリューム前提）
 - gateway の Path 抽出は percent-decode されない（reinhardt-web の仕様）→ 全 id ハンドラで `decode_id()` を通す。フロントは `encodeURIComponent` した record id を送る（実ブラウザ検証で発覚。密閉モックはエンコード済みURLに一致してしまい検出できなかった）
 - フロント→gateway の接続先は `window.location.hostname` から実行時導出（`:8088`）。`NEXT_PUBLIC_GATEWAY_URL` は上書き用（開発時）。Tailscale クライアントからも追加設定不要

@@ -12,6 +12,19 @@ import {
 export type EpisodeProfileInput = Omit<EpisodeProfile, 'id'>
 export type SpeakerProfileInput = Omit<SpeakerProfile, 'id'>
 
+export interface ChapterConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChapterAnswer {
+  episode_id: string
+  chapter_title: string
+  answer: string
+  excerpts: string[]
+  supported: boolean
+}
+
 export async function resolvePodcastAssetUrl(path?: string | null): Promise<string | undefined> {
   if (!path) {
     return undefined
@@ -31,6 +44,27 @@ export async function resolvePodcastAssetUrl(path?: string | null): Promise<stri
 }
 
 export const podcastsApi = {
+  getChapterAudio: async (episodeId: string, signal: AbortSignal) => {
+    const response = await apiClient.get<Blob>(
+      `/podcasts/episodes/${encodeURIComponent(episodeId)}/audio`,
+      { responseType: 'blob', signal }
+    )
+    return response.data
+  },
+
+  askChapter: async (
+    episodeId: string,
+    question: string,
+    history: ChapterConversationMessage[],
+    signal: AbortSignal
+  ) => {
+    const response = await apiClient.post<ChapterAnswer>(
+      `/podcasts/episodes/${encodeURIComponent(episodeId)}/question`,
+      { question, history },
+      { signal }
+    )
+    return response.data
+  },
   listEpisodes: async () => {
     const response = await apiClient.get<PodcastEpisode[]>('/podcasts/episodes')
     return response.data

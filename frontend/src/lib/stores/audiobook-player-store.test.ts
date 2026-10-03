@@ -8,6 +8,7 @@ describe('audiobook-player-store', () => {
       autoAdvance: true,
       lastAudiobookId: null,
       lastChapterIndex: null,
+      progress: {},
     })
     window.localStorage.removeItem('audiobook-player-storage')
   })
@@ -34,5 +35,22 @@ describe('audiobook-player-store', () => {
 
     useAudiobookPlayerStore.getState().setPosition(null, null)
     expect(useAudiobookPlayerStore.getState().lastAudiobookId).toBeNull()
+  })
+
+  it('persists independent positions by book and chapter ID', async () => {
+    const { saveProgress } = useAudiobookPlayerStore.getState()
+    saveProgress('audiobook:a', 'episode:a', 72.9)
+    saveProgress('audiobook:b', 'episode:b', 16)
+    await useAudiobookPlayerStore.persist.rehydrate()
+    expect(useAudiobookPlayerStore.getState().progress).toEqual({
+      'audiobook:a': { chapterId: 'episode:a', seconds: 72 },
+      'audiobook:b': { chapterId: 'episode:b', seconds: 16 },
+    })
+  })
+
+  it('ignores invalid media times', () => {
+    const { saveProgress } = useAudiobookPlayerStore.getState()
+    for (const seconds of [NaN, Infinity, -1]) saveProgress('audiobook:a', 'episode:a', seconds)
+    expect(useAudiobookPlayerStore.getState().progress).toEqual({})
   })
 })

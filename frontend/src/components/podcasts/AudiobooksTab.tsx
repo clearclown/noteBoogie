@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   BookUp,
@@ -8,6 +8,7 @@ import {
   Headphones,
   Image as ImageIcon,
   Loader2,
+  MessageCircleQuestion,
   Pause,
   Plus,
   Play,
@@ -36,8 +37,9 @@ import { audiobooksApi } from '@/lib/api/audiobooks'
 import { downloadEpisodesZip } from '@/lib/api/download'
 import { podcastsApi } from '@/lib/api/podcasts'
 import { ImportBookDialog } from './ImportBookDialog'
-import { AudiobookPlayerControls } from './AudiobookPlayerControls'
-import { getApiUrl } from '@/lib/config'
+import { AudiobookPlayerControls, formatTime } from './AudiobookPlayerControls'
+import { ChapterQuestionPanel } from './ChapterQuestionPanel'
+import { useAudiobookPlayback } from '@/lib/hooks/use-audiobook-playback'
 import {
   AUDIOBOOK_QUERY_KEYS,
   useAudiobook,
@@ -52,34 +54,6 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 import { AudiobookChapter } from '@/lib/types/audiobooks'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-/** Fetch a chapter's protected audio as an object URL (same auth pattern as EpisodeCard). */
-async function fetchChapterAudio(chapterId: string): Promise<string> {
-  const base = await getApiUrl()
-  let token: string | undefined
-  if (typeof window !== 'undefined') {
-    const raw = window.localStorage.getItem('auth-storage')
-    if (raw) {
-      try {
-        token = JSON.parse(raw)?.state?.token
-      } catch {
-        // ignore parse errors; request proceeds unauthenticated
-      }
-    }
-  }
-  const headers: HeadersInit = {}
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-  const response = await fetch(
-    `${base}/api/podcasts/episodes/${encodeURIComponent(chapterId)}/audio`,
-    { headers }
-  )
-  if (!response.ok) {
-    throw new Error(`Audio request failed with status ${response.status}`)
-  }
-  return URL.createObjectURL(await response.blob())
-}
-
 function AudiobookDetailView({
   audiobookId,
   onBack,
@@ -92,16 +66,28 @@ function AudiobookDetailView({
   const { data: detail, isLoading } = useAudiobook(audiobookId)
   const { data: figures } = useAudiobookFigures(audiobookId)
 
-  const [currentIndex, setCurrentIndex] = useState<number | null>(null)
   const autoAdvance = useAudiobookPlayerStore((s) => s.autoAdvance)
   const setAutoAdvance = useAudiobookPlayerStore((s) => s.setAutoAdvance)
-  const setPosition = useAudiobookPlayerStore((s) => s.setPosition)
-  const [audioSrc, setAudioSrc] = useState<string | undefined>()
-  const [audioError, setAudioError] = useState(false)
-  const [playing, setPlaying] = useState(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-
+  const savedProgress = useAudiobookPlayerStore((s) => s.progress[audiobookId])
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => {
+    setHydrated(useAudiobookPlayerStore.persist.hasHydrated())
+    return useAudiobookPlayerStore.persist.onFinishHydration(() => setHydrated(true))
+  }, [])
   const chapters = useMemo(() => detail?.chapters ?? [], [detail])
+  const player = useAudiobookPlayback(audiobookId, chapters)
+  const { audioRef, audioSrc, audioError, playing } = player
+  const currentIndex = player.chapterId
+    ? chapters.findIndex((chapter) => chapter.id === player.chapterId) : -1
+  const [questionOpen, setQuestionOpen] = useState(false)
+  const resumable = hydrated && savedProgress
+    ? chapters.find((chapter) => chapter.id === savedProgress.chapterId && chapter.audio_file)
+    : undefined
+
+  const chooseChapter = (id: string, seconds = 0) => {
+    setQuestionOpen(false)
+    player.selectChapter(id, seconds)
+  }
 
   // 一括ダウンロード（この本の完成章を1つのZIPで保存。スマホで1ファイル完結）。
   const [zipping, setZipping] = useState(false)
@@ -121,82 +107,23 @@ function AudiobookDetailView({
     }
   }, [downloadableIds, detail?.name, t])
 
-  const playable = useCallback(
-    (index: number | null) =>
-      index !== null && Boolean(chapters[index]?.audio_file && chapters[index]?.id),
-    [chapters]
-  )
-
-  // Remember the listening position (persisted).
-  useEffect(() => {
-    setPosition(audiobookId, currentIndex)
-  }, [audiobookId, currentIndex, setPosition])
-
-  // Load the selected chapter's audio blob.
-  useEffect(() => {
-    let revokeUrl: string | undefined
-    setAudioError(false)
-    setAudioSrc(undefined)
-    if (!playable(currentIndex)) {
-      return
+  const advance = (step: number) => {
+    if (currentIndex < 0) return
+    let next = currentIndex + step
+    while (next >= 0 && next < chapters.length && !(chapters[next].audio_file && chapters[next].id)) {
+      next += step
     }
-    const chapter = chapters[currentIndex as number]
-    fetchChapterAudio(chapter.id as string)
-      .then((url) => {
-        revokeUrl = url
-        setAudioSrc(url)
-      })
-      .catch((error) => {
-        console.error('Unable to load chapter audio', error)
-        setAudioError(true)
-      })
-    return () => {
-      if (revokeUrl) {
-        URL.revokeObjectURL(revokeUrl)
-      }
-    }
-  }, [currentIndex, chapters, playable])
-
-  // Autoplay once the blob is ready (also drives auto-advance).
-  useEffect(() => {
-    if (audioSrc && audioRef.current) {
-      void audioRef.current.play().catch(() => setPlaying(false))
-    }
-  }, [audioSrc])
-
-  const advance = useCallback(
-    (step: number) => {
-      if (currentIndex === null) {
-        return
-      }
-      let next = currentIndex + step
-      while (next >= 0 && next < chapters.length && !playable(next)) {
-        next += step
-      }
-      if (next >= 0 && next < chapters.length) {
-        setCurrentIndex(next)
-      }
-    },
-    [chapters.length, currentIndex, playable]
-  )
+    if (next >= 0 && next < chapters.length) chooseChapter(chapters[next].id as string)
+  }
 
   const handleEnded = () => {
-    setPlaying(false)
-    if (autoAdvance) {
-      advance(1)
-    }
+    player.onPause()
+    if (autoAdvance) advance(1)
   }
 
   const togglePlay = () => {
-    const el = audioRef.current
-    if (!el) {
-      return
-    }
-    if (el.paused) {
-      void el.play()
-    } else {
-      el.pause()
-    }
+    if (audioRef.current?.paused) player.play()
+    else player.pause()
   }
 
   const figuresByChapter = useMemo(() => {
@@ -211,7 +138,7 @@ function AudiobookDetailView({
   }, [figures])
 
   const currentChapter: AudiobookChapter | undefined =
-    currentIndex !== null ? chapters[currentIndex] : undefined
+    currentIndex >= 0 ? chapters[currentIndex] : undefined
   const currentFigures =
     (currentChapter ? figuresByChapter.get(currentChapter.chapter_index) : undefined) ?? []
 
@@ -226,7 +153,7 @@ function AudiobookDetailView({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={onBack}>
+        <Button variant="ghost" size="sm" onClick={onBack} aria-label={t('common.back')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h2 className="text-lg font-semibold">{detail?.name}</h2>
@@ -255,6 +182,16 @@ function AudiobookDetailView({
         </label>
       </div>
 
+      {resumable && currentIndex < 0 && savedProgress && (
+        <Button className="min-h-11 w-full" variant="outline"
+          onClick={() => chooseChapter(resumable.id as string, savedProgress.seconds)}>
+          <Play className="h-4 w-4 shrink-0" />
+          <span className="truncate">{t('podcasts.audiobookResume', {
+            chapter: resumable.name, time: formatTime(savedProgress.seconds),
+          })}</span>
+        </Button>
+      )}
+
       {/* Player */}
       <Card>
         <CardContent className="pt-6 space-y-3">
@@ -263,7 +200,7 @@ function AudiobookDetailView({
               variant="outline"
               size="icon"
               onClick={() => advance(-1)}
-              disabled={currentIndex === null}
+              disabled={currentIndex < 0}
               aria-label={t('podcasts.audiobookPrevChapter')}
             >
               <SkipBack className="h-5 w-5" />
@@ -281,7 +218,7 @@ function AudiobookDetailView({
               variant="outline"
               size="icon"
               onClick={() => advance(1)}
-              disabled={currentIndex === null}
+              disabled={currentIndex < 0}
               aria-label={t('podcasts.audiobookNextChapter')}
             >
               <SkipForward className="h-5 w-5" />
@@ -299,13 +236,32 @@ function AudiobookDetailView({
                 ref={audioRef}
                 src={audioSrc}
                 className="hidden"
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
+                onLoadedMetadata={player.onLoadedMetadata}
+                onTimeUpdate={player.remember}
+                onSeeked={player.remember}
+                onPlay={player.onPlay}
+                onPause={player.onPause}
                 onEnded={handleEnded}
               />
               <AudiobookPlayerControls audioRef={audioRef} audioSrc={audioSrc} />
             </>
           ) : null}
+          {currentChapter?.id && (
+            <>
+              <Button variant="outline" className="min-h-11 w-full"
+                onClick={() => {
+                  if (questionOpen) { setQuestionOpen(false); player.play() }
+                  else { player.pause(); setQuestionOpen(true) }
+                }}>
+                {questionOpen ? <Play className="h-4 w-4" /> : <MessageCircleQuestion className="h-4 w-4" />}
+                {t(questionOpen ? 'podcasts.chapterQuestionResume' : 'podcasts.chapterQuestionTitle')}
+              </Button>
+              {questionOpen && (
+                <ChapterQuestionPanel key={currentChapter.id} episodeId={currentChapter.id}
+                  chapterName={currentChapter.name ?? ''} />
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -319,11 +275,8 @@ function AudiobookDetailView({
             const ready = Boolean(chapter.audio_file)
             const active = index === currentIndex
             return (
-              <button
+              <div
                 key={chapter.id ?? index}
-                type="button"
-                onClick={() => ready && setCurrentIndex(index)}
-                disabled={!ready}
                 className={`w-full flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
                   active
                     ? 'bg-primary/10 text-primary'
@@ -332,10 +285,18 @@ function AudiobookDetailView({
                       : 'opacity-50 cursor-not-allowed'
                 }`}
               >
-                <span className="w-6 text-center font-mono text-xs text-muted-foreground">
-                  {(chapter.chapter_index ?? index) + 1}
-                </span>
-                <span className="flex-1 truncate">{chapter.name}</span>
+                <button
+                  type="button"
+                  onClick={() => chapter.id && chooseChapter(chapter.id)}
+                  disabled={!ready}
+                  aria-current={active ? 'true' : undefined}
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
+                >
+                  <span className="w-6 shrink-0 text-center font-mono text-xs text-muted-foreground">
+                    {(chapter.chapter_index ?? index) + 1}
+                  </span>
+                  <span className="truncate">{chapter.name}</span>
+                </button>
                 {ready ? (
                   <span className="flex items-center gap-0.5 shrink-0">
                     {active && playing ? <Headphones className="h-4 w-4" /> : null}
@@ -418,7 +379,7 @@ function AudiobookDetailView({
                     {t('podcasts.audiobookAudioPending')}
                   </Badge>
                 )}
-              </button>
+              </div>
             )
           })}
         </CardContent>
@@ -613,7 +574,7 @@ export function AudiobooksTab() {
   }
 
   if (selectedId) {
-    return <AudiobookDetailView audiobookId={selectedId} onBack={() => setSelectedId(null)} />
+    return <AudiobookDetailView key={selectedId} audiobookId={selectedId} onBack={() => setSelectedId(null)} />
   }
 
   if (isLoading) {

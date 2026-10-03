@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,6 +24,8 @@ vi.mock('@/lib/config', () => ({
 vi.mock('@/lib/api/podcasts', () => ({
   podcastsApi: {
     setEpisodeFeedback: vi.fn(),
+    getChapterAudio: vi.fn(),
+    askChapter: vi.fn(),
   },
 }))
 
@@ -52,6 +54,7 @@ vi.mock('@/lib/api/sources', () => ({
 
 import { audiobooksApi } from '@/lib/api/audiobooks'
 import { podcastsApi } from '@/lib/api/podcasts'
+import { useAudiobookPlayerStore } from '@/lib/stores/audiobook-player-store'
 
 function renderTab() {
   const client = new QueryClient({
@@ -104,14 +107,13 @@ const FIGURES = [
 ]
 
 beforeEach(() => {
+  useAudiobookPlayerStore.setState({ autoAdvance: true, progress: {} })
+  vi.mocked(podcastsApi.getChapterAudio).mockReset().mockResolvedValue(new Blob(['audio']))
+  vi.mocked(podcastsApi.askChapter).mockReset()
   vi.mocked(audiobooksApi.list).mockReset()
   vi.mocked(audiobooksApi.get).mockReset()
   vi.mocked(audiobooksApi.listFigures).mockReset()
   vi.mocked(audiobooksApi.delete).mockReset()
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({ ok: true, blob: async () => new Blob(['audio']) }))
-  )
   vi.stubGlobal('URL', {
     ...URL,
     createObjectURL: vi.fn(() => 'blob:audio'),
@@ -163,6 +165,79 @@ describe('AudiobooksTab detail view', () => {
     return utils
   }
 
+  it('pauses to ask the selected chapter and resumes at the same time', async () => {
+    const { container } = await openDetail()
+    fireEvent.click(screen.getByText('第1章：序'))
+    await waitFor(() => expect(container.querySelector('audio')).not.toBeNull())
+    const audio = container.querySelector('audio') as HTMLAudioElement
+    fireEvent.loadedMetadata(audio)
+    audio.currentTime = 83.5
+    fireEvent.timeUpdate(audio)
+    vi.mocked(podcastsApi.askChapter).mockResolvedValue({
+      episode_id: 'episode:c0', chapter_title: '序', supported: true,
+      answer: 'Start with the question.', excerpts: ['Start by identifying the question.'],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'podcasts.chapterQuestionTitle' }))
+    expect(audio.pause).toHaveBeenCalled()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'What is the first step?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'mentor.send' }))
+    expect(await screen.findByText('Start with the question.')).toBeInTheDocument()
+    expect(podcastsApi.askChapter).toHaveBeenCalledWith('episode:c0', 'What is the first step?', [], expect.any(AbortSignal))
+    fireEvent.click(screen.getByRole('button', { name: 'podcasts.chapterQuestionResume' }))
+    expect(audio.currentTime).toBe(83.5)
+    expect(audio.play).toHaveBeenCalledTimes(2)
+    expect(useAudiobookPlayerStore.getState().progress['audiobook:a']).toEqual({ chapterId: 'episode:c0', seconds: 83 })
+  })
+
+  it('offers explicit resume after reopening without resetting the saved position', async () => {
+    const { container } = await openDetail()
+    fireEvent.click(screen.getByText('第1章：序'))
+    await waitFor(() => expect(container.querySelector('audio')).not.toBeNull())
+    const audio = container.querySelector('audio') as HTMLAudioElement
+    fireEvent.loadedMetadata(audio)
+    audio.currentTime = 91
+    // Leaving flushes position even without a timeupdate.
+    fireEvent.click(screen.getByRole('button', { name: 'common.back' }))
+    expect(useAudiobookPlayerStore.getState().progress['audiobook:a'].seconds).toBe(91)
+    fireEvent.click(await screen.findByText(AUDIOBOOK.name))
+    const resume = await screen.findByRole('button', { name: 'podcasts.audiobookResume' })
+    expect(container.querySelector('audio')).toBeNull()
+    fireEvent.click(resume)
+    await waitFor(() => expect(container.querySelector('audio')).not.toBeNull())
+    const restored = container.querySelector('audio') as HTMLAudioElement
+    fireEvent.loadedMetadata(restored)
+    expect(restored.currentTime).toBe(91)
+  })
+
+  it('does not reload audio when chapter metadata is refetched', async () => {
+    const { container } = await openDetail()
+    fireEvent.click(screen.getByText('第1章：序'))
+    await waitFor(() => expect(container.querySelector('audio')).not.toBeNull())
+    const audio = container.querySelector('audio') as HTMLAudioElement
+    fireEvent.loadedMetadata(audio)
+    audio.currentTime = 42
+    // Feedback invalidates the detail query and produces a new chapters array.
+    vi.mocked(podcastsApi.setEpisodeFeedback).mockResolvedValue({ id: 'episode:c0', feedback: 'up' })
+    vi.mocked(audiobooksApi.get).mockResolvedValue({ ...DETAIL, chapters: DETAIL.chapters.map(c => ({ ...c, feedback: 'up' as const })) })
+    fireEvent.click(screen.getAllByLabelText('podcasts.chapterFeedbackUp')[0])
+    await waitFor(() => expect(audiobooksApi.get).toHaveBeenCalledTimes(2))
+    expect(podcastsApi.getChapterAudio).toHaveBeenCalledTimes(1)
+    expect(audio.currentTime).toBe(42)
+  })
+
+  it('ignores a late audio download after changing chapters', async () => {
+    let resolveOld!: (blob: Blob) => void
+    vi.mocked(podcastsApi.getChapterAudio).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const { container } = await openDetail()
+    fireEvent.click(screen.getByText('第1章：序'))
+    await waitFor(() => expect(podcastsApi.getChapterAudio).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByText('第3章：結'))
+    await waitFor(() => expect(container.querySelector('audio')).not.toBeNull())
+    await act(async () => resolveOld(new Blob(['old'])))
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(podcastsApi.getChapterAudio).mock.calls[0][1].aborted).toBe(true)
+  })
+
   it('renders the tracklist with pending chapters disabled', async () => {
     await openDetail()
     expect(screen.getByText('第2章：本論').closest('button')).toBeDisabled()
@@ -174,8 +249,8 @@ describe('AudiobooksTab detail view', () => {
     await openDetail()
     fireEvent.click(screen.getByText('第1章：序'))
     await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        'http://api:5055/api/podcasts/episodes/episode%3Ac0/audio',
+      expect(podcastsApi.getChapterAudio).toHaveBeenCalledWith(
+        'episode:c0',
         expect.anything()
       )
     )
@@ -189,8 +264,8 @@ describe('AudiobooksTab detail view', () => {
     fireEvent.ended(container.querySelector('audio') as HTMLAudioElement)
     // Chapter 2 (no audio) is skipped; chapter 3 loads.
     await waitFor(() =>
-      expect(fetch).toHaveBeenLastCalledWith(
-        'http://api:5055/api/podcasts/episodes/episode%3Ac2/audio',
+      expect(podcastsApi.getChapterAudio).toHaveBeenLastCalledWith(
+        'episode:c2',
         expect.anything()
       )
     )
@@ -201,11 +276,11 @@ describe('AudiobooksTab detail view', () => {
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByText('第1章：序'))
     await waitFor(() => expect(container.querySelector('audio')).not.toBeNull())
-    const calls = vi.mocked(fetch).mock.calls.length
+    const calls = vi.mocked(podcastsApi.getChapterAudio).mock.calls.length
 
     fireEvent.ended(container.querySelector('audio') as HTMLAudioElement)
     await new Promise((r) => setTimeout(r, 20))
-    expect(vi.mocked(fetch).mock.calls.length).toBe(calls)
+    expect(vi.mocked(podcastsApi.getChapterAudio).mock.calls.length).toBe(calls)
   })
 
   it('filters the figure gallery to the playing chapter, falling back to all', async () => {
@@ -225,7 +300,7 @@ describe('AudiobooksTab detail view', () => {
     vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
     vi.mocked(audiobooksApi.get).mockResolvedValue(DETAIL)
     vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 })))
+    vi.mocked(podcastsApi.getChapterAudio).mockRejectedValue(new Error('403'))
     renderTab()
     fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
     fireEvent.click(await screen.findByText('第1章：序'))
@@ -253,20 +328,6 @@ describe('AudiobooksTab detail view', () => {
     expect(screen.getByText('コンサル頭のつくり方')).toBeInTheDocument()
     expect(errorSpy).toHaveBeenCalled()
     errorSpy.mockRestore()
-  })
-
-  it('falls back to unauthenticated audio fetch when auth storage is corrupt', async () => {
-    window.localStorage.setItem('auth-storage', '{not json')
-    vi.mocked(audiobooksApi.list).mockResolvedValue([AUDIOBOOK])
-    vi.mocked(audiobooksApi.get).mockResolvedValue(DETAIL)
-    vi.mocked(audiobooksApi.listFigures).mockResolvedValue([])
-    renderTab()
-    fireEvent.click(await screen.findByText('コンサル頭のつくり方'))
-    fireEvent.click(await screen.findByText('第1章：序'))
-    await waitFor(() => expect(fetch).toHaveBeenCalled())
-    const headers = vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>
-    expect(headers?.Authorization).toBeUndefined()
-    window.localStorage.removeItem('auth-storage')
   })
 
   it('marks a failed chapter with a destructive badge, not generating', async () => {

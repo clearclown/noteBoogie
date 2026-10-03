@@ -210,3 +210,68 @@ test('empty state renders when no audiobooks exist', async ({ page }) => {
     page.getByText(/オーディオブックはまだありません|No audiobooks yet/)
   ).toBeVisible()
 })
+
+test('phone: listen, ask this chapter, resume and restore after reload', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => localStorage.setItem('i18nextLng', 'ja-JP'))
+  await page.route(`${API}/api/credentials/status`, route => route.fulfill({
+    json: { configured: {}, source: {}, encryption_configured: true },
+  }))
+  // A valid, silent WAV exercises native media time and pause/resume behavior.
+  const audio = Buffer.alloc(44 + 8000 * 2 * 30)
+  audio.write('RIFF', 0)
+  audio.writeUInt32LE(audio.length - 8, 4)
+  audio.write('WAVEfmt ', 8)
+  audio.writeUInt32LE(16, 16)
+  audio.writeUInt16LE(1, 20)
+  audio.writeUInt16LE(1, 22)
+  audio.writeUInt32LE(8000, 24)
+  audio.writeUInt32LE(16000, 28)
+  audio.writeUInt16LE(2, 32)
+  audio.writeUInt16LE(16, 34)
+  audio.write('data', 36)
+  audio.writeUInt32LE(audio.length - 44, 40)
+  await page.route(`${API}/api/podcasts/episodes/episode%3Ac0/audio`, route =>
+    route.fulfill({ contentType: 'audio/wav', body: audio }))
+  await page.route(`${API}/api/podcasts/episodes/episode%3Ac0/question`, route => {
+    expect(route.request().postDataJSON()).toEqual({ question: 'この章の要点は？', history: [] })
+    return route.fulfill({ json: {
+      episode_id: 'episode:c0', chapter_title: '序', supported: true,
+      answer: 'まず課題を整理します。', excerpts: ['最初に取り組むべき課題を明確にする。'],
+    } })
+  })
+  const openBook = async () => {
+    await page.goto('/podcasts')
+    await page.getByRole('tab', { name: /オーディオブック|Audiobooks/ }).click()
+    await page.getByText(AUDIOBOOK.name).click()
+  }
+  await openBook()
+  await expect(page.locator('button button')).toHaveCount(0)
+  await page.getByRole('button', { name: /第1章:序/ }).click()
+  const media = page.locator('audio')
+  await expect.poll(() => media.evaluate((el: HTMLAudioElement) => el.readyState)).toBeGreaterThanOrEqual(1)
+  await media.evaluate((el: HTMLAudioElement) => { el.currentTime = 12 })
+  await page.getByRole('button', { name: /この章に質問|Ask about this chapter/ }).click()
+  await expect.poll(() => media.evaluate((el: HTMLAudioElement) => el.paused)).toBe(true)
+  const pausedAt = await media.evaluate((el: HTMLAudioElement) => el.currentTime)
+  await page.getByRole('textbox').fill('この章の要点は？')
+  await page.getByRole('button', { name: /送信|Send/ }).click()
+  await expect(page.getByText('まず課題を整理します。')).toBeVisible()
+  await page.getByText(/根拠となる本文を見る|View supporting text/).click()
+  await expect(page.getByText('最初に取り組むべき課題を明確にする。')).toBeVisible()
+  await page.screenshot({ path: 'test-results/chapter-question-phone.png', fullPage: true })
+  expect(await media.evaluate((el: HTMLAudioElement) => el.currentTime)).toBe(pausedAt)
+  await page.getByRole('button', { name: /質問を終えて再生|Return to listening/ }).click()
+  await expect.poll(() => media.evaluate((el: HTMLAudioElement) => el.paused)).toBe(false)
+  await page.getByRole('button', { name: /この章に質問|Ask about this chapter/ }).click()
+  const position = await media.evaluate((el: HTMLAudioElement) => Math.floor(el.currentTime))
+  await page.reload()
+  await page.getByRole('tab', { name: /オーディオブック|Audiobooks/ }).click()
+  await page.getByText(AUDIOBOOK.name).click()
+  await expect(page.locator('audio')).toHaveCount(0)
+  await page.getByRole('button', { name: /続きから聴く|Resume/ }).click()
+  await expect.poll(() => media.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeGreaterThanOrEqual(position)
+  expect(await media.evaluate((el: HTMLAudioElement) => el.currentTime)).toBeLessThan(position + 3)
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow).toBeLessThanOrEqual(1)
+})

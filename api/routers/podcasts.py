@@ -5,6 +5,11 @@ from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
+from api.chapter_question_service import (
+    ChapterQuestionRequest,
+    ChapterQuestionResponse,
+    answer_chapter_question,
+)
 from api.podcast_service import (
     PodcastGenerationRequest,
     PodcastGenerationResponse,
@@ -16,6 +21,14 @@ from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
 from open_notebook.podcasts.models import PodcastEpisode
 
 router = APIRouter()
+
+
+@router.post(
+    "/podcasts/episodes/{episode_id}/question", response_model=ChapterQuestionResponse
+)
+async def ask_chapter(episode_id: str, request: ChapterQuestionRequest):
+    """Ask about the original text of one audiobook chapter."""
+    return await answer_chapter_question(episode_id, request)
 
 # Model reference fields stored in the denormalized profile snapshots on an
 # episode, mapped to the resolved display fields the frontend renders
