@@ -9,6 +9,8 @@ Two kinds, same format:
 
 The **current rules** distilled from these records live in [VISION.md](../../../VISION.md) (product identity + posture) and [design-principles.md](../design-principles.md) (engineering practices). Records are the memory; those pages are the law.
 
+The noteBoogie fork's product direction lives in [PMVV.md](../../book-navigator/PMVV.md). PDR-003 records its role alongside mangaga; it does not replace the upstream Open Notebook vision.
+
 ## Rules
 
 1. **Records are immutable.** Reversing a decision means writing a *new* record and marking the old one `Superseded by ADR-NNN` in its Status line — never editing history.
@@ -52,3 +54,4 @@ What this makes easier, what it makes harder, what to watch. (bullets)
 | [ADR-008](ADR-008-chapter-listening-questions.md) | Listening questions use the stored chapter text | Accepted |
 | [PDR-001](PDR-001-single-user-first.md) | Single-user first; don't preclude multi-user | Accepted |
 | [PDR-002](PDR-002-provider-agnostic-core.md) | Provider-agnostic core by default | Accepted |
+| [PDR-003](PDR-003-personal-library-and-mangaga.md) | noteBoogie manages the personal library; mangaga provides everyday reading | Accepted |

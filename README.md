@@ -1,16 +1,18 @@
 # noteBoogie — Book Navigator
 
-**紙の書籍（スキャンPDF・縦書き対応）を、章ごとの「メンター独話オーディオブック」と質問できるナレッジベースに変換する個人プロジェクト。** ビジネス書に限らず、技術書・専門書・実用書など任意の蔵書で機能します（師匠のペルソナも自由に設定可能）。
+**蔵書の原本・本文・出典・読書記録を管理し、読む・聴く・質問するための情報を整える、個人用の蔵書基盤を目指すプロジェクトです。** 自分が取り込んだ本を日常で読み、疑問を解き、後から参照できるようにします。
 
-Google NotebookLM の「音声概要 + ソースに聞く」体験を、自分の蔵書・自分のモデル選択・自分のマシンで超えることを目標にした [Open Notebook](https://github.com/lfnovo/open-notebook) の個人フォークです。
+[Open Notebook](https://github.com/lfnovo/open-notebook) の個人フォークです。既存のBook Navigatorには、スキャンPDFの取り込み、章別の音声解説、蔵書への質問、メンター機能があります。
 
-**目的は「積んである本を、耳で聴いて頭に入る形に変えること」**。判断基準は ①本に書いてあることだけを言う ②要点を落とさない ③耳で分かる ④蔵書を自分の管理下に置く、の順です（[PMVV.md](docs/book-navigator/PMVV.md)）。台本の採点式もこの優先順位をそのまま重みにしています。
+2026-10-03に[役割と成功条件](docs/book-navigator/PMVV.md)を再定義しました。noteBoogieは取り込み・本文確認・AI処理・記録管理、mangagaはiPhoneの日常利用を担います。初回はPDFの読書と記録の往復、次段階は章音声・質問・回答履歴をつなぎます。
+
+mangaga連携は[要件策定の段階](MANGAGA_INTEGRATION.md)であり、接続・同期が実装済みという意味ではありません。判断基準は、原本と出典を確かめられること、読書と記録が続くこと、自分でデータと費用を管理できることです。
 
 > フォーク元（Open Notebook 本体）の機能・設定・デプロイは [docs/](docs/index.md)（英語）と [docs/UPSTREAM_README.md](docs/UPSTREAM_README.md) を参照してください。この README は本フォークの追加機能（Book Navigator）を扱います。
 
 ---
 
-## なにができるか
+## 既存のBook Navigator機能
 
 1. **スキャン和書PDF → Markdown**: 姉妹リポ [Rust_DN_SuperBook_PDF_Converter](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter) が YomiToku OCR（Apple Silicon MPS 加速）で変換。**縦書きの右→左段組**・**章見出し（第N章）**・**表（Markdown表として復元）**・**図の切り出し**・章/図マニフェスト出力に対応
 2. **取り込み**: 本文を Open Notebook の Source として登録し、図は Claude vision で**日本語キャプション化**（音声用に本文へ【図: …】マーカーを埋め込み）、全文をチャンク埋め込み
